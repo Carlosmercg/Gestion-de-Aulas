@@ -10,12 +10,28 @@ def enviar_a_dti(data):
         socket.connect("tcp://10.43.103.197:5556")
         socket.send_json(data)
         respuesta = socket.recv_json()
-        print(f"[Facultad {data['facultad']}] Respuesta de DTI: {respuesta['mensaje']}")
+        
+        print(f"\n[Facultad {data['facultad']}] Respuesta de DTI:")
+        print(f"  - Estado: {respuesta.get('status')}")
+        print(f"  - Mensaje: {respuesta.get('mensaje')}")
+
+        if "resultados" in respuesta:
+            for r in respuesta["resultados"]:
+                print(f"  -> Programa: {r['programa']}")
+                print(f"     Salones solicitados: {r['salones_solicitados']}")
+                print(f"     Salones asignados: {r['salones_asignados']}")
+                print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
+                print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
+                if "salones_como_laboratorios" in r:
+                    print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
+                print()
+
     except Exception as e:
         print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
     finally:
         socket.close()
         context.term()
+
 
 # Función que maneja los programas de una facultad
 def manejar_programas_facultad(facultad, puerto):
