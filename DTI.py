@@ -94,10 +94,11 @@ def procesar_programa(programa, facultad, semestre):
         resultados_asignacion[clave].append(resultado)
 
         # Actualizar estado_asignaciones con la disponibilidad restante
-        estado['salones_disponibles'] = disponibles['salones']
-        estado['laboratorios_disponibles'] = disponibles['laboratorios']
+        estado['salones_disponibles'] = max(disponibles['salones'], 0)  # Asegurarse que no sea negativo
+        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'], 0)  # Asegurarse que no sea negativo
 
     time.sleep(1)
+
 
 def guardar_resultados_global():
     resultados_por_semestre = {}
@@ -134,6 +135,7 @@ def manejar_dti():
                 print(f"  - Programa: {programa['nombre']}, Salones solicitados: {programa['salones']}, Laboratorios solicitados: {programa['laboratorios']}")
 
             hilos = []
+            resultados_programas = []  # Lista para almacenar los resultados de asignación de cada programa
             for programa in programas:
                 hilo = threading.Thread(target=procesar_programa, args=(programa, facultad, semestre))
                 hilo.start()
@@ -142,12 +144,28 @@ def manejar_dti():
             for hilo in hilos:
                 hilo.join()
 
+            # Recopilar resultados por programa
+            for programa in programas:
+                clave = f"{facultad}_{semestre}"
+                for resultado in resultados_asignacion.get(clave, []):
+                    if resultado["programa"] == programa["nombre"]:
+                        resultados_programas.append({
+                            "programa": programa["nombre"],
+                            "salones_solicitados": resultado["salones_solicitados"],
+                            "laboratorios_solicitados": resultado["laboratorios_solicitados"],
+                            "salones_asignados": resultado["salones_asignados"],
+                            "laboratorios_asignados": resultado["laboratorios_asignados"],
+                            "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
+                        })
+
             guardar_resultados_global()
             guardar_estado_asignaciones()
 
+            # Responder con los resultados completos
             socket.send_json({
                 "status": "ok",
-                "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}."
+                "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}.",
+                "resultados": resultados_programas  # Enviar los resultados detallados de los programas
             })
 
         except Exception as e:
@@ -156,6 +174,7 @@ def manejar_dti():
 
     socket.close()
     context.term()
+
 
 def iniciar_dti():
     cargar_estado_asignaciones()
