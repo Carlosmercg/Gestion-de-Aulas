@@ -3,6 +3,8 @@ import threading
 import time
 import json
 import os
+import signal
+import sys
 
 # Disponibilidades originales
 SALONES_DISPONIBLES_ORIGINALES = 380
@@ -10,10 +12,20 @@ LABORATORIOS_DISPONIBLES_ORIGINALES = 60
 
 # Diccionarios para manejar la disponibilidad por semestre
 disponibilidad_por_semestre = {}
-
 lock = threading.Lock()
 resultados_asignacion = {}
 estado_asignaciones = {}
+
+detener_servidor = False  # Bandera global para parar el servidor
+
+
+def handler(sig, frame):
+    global detener_servidor
+    print("\n[DTI] Señal de interrupción recibida. Deteniendo servidor...")
+    detener_servidor = True
+
+signal.signal(signal.SIGINT, handler)
+
 
 def cargar_estado_asignaciones():
     global estado_asignaciones
@@ -24,15 +36,16 @@ def cargar_estado_asignaciones():
         estado_asignaciones = {}
         disponibilidad_por_semestre.clear()
 
+
 def guardar_estado_asignaciones():
     archivo_estado = "resultados/estado_asignaciones.json"
     os.makedirs("resultados", exist_ok=True)
     with open(archivo_estado, "w", encoding="utf-8") as f:
         json.dump(estado_asignaciones, f, ensure_ascii=False, indent=4)
 
+
 def procesar_programa(programa, facultad, semestre):
     with lock:
-        # Inicializar estado y disponibilidad del semestre si no existen
         if semestre not in estado_asignaciones:
             estado_asignaciones[semestre] = {
                 'salones_disponibles': SALONES_DISPONIBLES_ORIGINALES,
@@ -45,11 +58,9 @@ def procesar_programa(programa, facultad, semestre):
                 'laboratorios': LABORATORIOS_DISPONIBLES_ORIGINALES
             }
 
-        # Referencias locales
         disponibles = disponibilidad_por_semestre[semestre]
         estado = estado_asignaciones[semestre]
 
-        # Acumulamos solicitudes
         estado['salones_solicitados'] += programa['salones']
         estado['laboratorios_solicitados'] += programa['laboratorios']
 
@@ -64,7 +75,6 @@ def procesar_programa(programa, facultad, semestre):
 
         salones_usados_como_labs = 0
 
-        # Asignación de laboratorios
         if disponibles['laboratorios'] >= programa['laboratorios']:
             disponibles['laboratorios'] -= programa['laboratorios']
             resultado["laboratorios_asignados"] = programa['laboratorios']
@@ -77,7 +87,6 @@ def procesar_programa(programa, facultad, semestre):
         else:
             print(f"[DTI] {programa['nombre']} ({facultad}) no recibió laboratorios ni salones como sustituto.")
 
-        # Asignación de salones normales
         if disponibles['salones'] >= programa['salones']:
             disponibles['salones'] -= programa['salones']
             resultado["salones_asignados"] += programa['salones']
@@ -93,9 +102,8 @@ def procesar_programa(programa, facultad, semestre):
             resultados_asignacion[clave] = []
         resultados_asignacion[clave].append(resultado)
 
-        # Actualizar estado_asignaciones con la disponibilidad restante
-        estado['salones_disponibles'] = max(disponibles['salones'], 0)  # Asegurarse que no sea negativo
-        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'], 0)  # Asegurarse que no sea negativo
+        estado['salones_disponibles'] = max(disponibles['salones'], 0)
+        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'], 0)
 
     time.sleep(1)
 
@@ -115,6 +123,7 @@ def guardar_resultados_global():
         with open(f"resultados/asignacion_completa_{semestre}.json", "w", encoding="utf-8") as f:
             json.dump(datos, f, ensure_ascii=False, indent=4)
 
+
 def manejar_dti():
     context = zmq.Context()
     socket = context.socket(zmq.REP)
@@ -122,64 +131,73 @@ def manejar_dti():
 
     print("[DTI] Servidor DTI iniciado, escuchando en el puerto 5556...")
 
-    while True:
+    while not detener_servidor:
         try:
-            mensaje = socket.recv_json()
+            if socket.poll(1000):  # espera hasta 1 segundo por mensaje
+                mensaje = socket.recv_json()
 
-            programas = mensaje["programas"]
-            facultad = mensaje["facultad"]
-            semestre = mensaje["semestre"]
+                programas = mensaje["programas"]
+                facultad = mensaje["facultad"]
+                semestre = mensaje["semestre"]
 
-            print(f"[DTI] Solicitud recibida para {facultad} - {semestre}:")
-            for programa in programas:
-                print(f"  - Programa: {programa['nombre']}, Salones solicitados: {programa['salones']}, Laboratorios solicitados: {programa['laboratorios']}")
+                print(f"[DTI] Solicitud recibida para {facultad} - {semestre}:")
+                for programa in programas:
+                    print(f"  - Programa: {programa['nombre']}, Salones solicitados: {programa['salones']}, Laboratorios solicitados: {programa['laboratorios']}")
 
-            hilos = []
-            resultados_programas = []  # Lista para almacenar los resultados de asignación de cada programa
-            for programa in programas:
-                hilo = threading.Thread(target=procesar_programa, args=(programa, facultad, semestre))
-                hilo.start()
-                hilos.append(hilo)
+                hilos = []
+                resultados_programas = []
+                for programa in programas:
+                    hilo = threading.Thread(target=procesar_programa, args=(programa, facultad, semestre))
+                    hilo.start()
+                    hilos.append(hilo)
 
-            for hilo in hilos:
-                hilo.join()
+                for hilo in hilos:
+                    hilo.join()
 
-            # Recopilar resultados por programa
-            for programa in programas:
                 clave = f"{facultad}_{semestre}"
-                for resultado in resultados_asignacion.get(clave, []):
-                    if resultado["programa"] == programa["nombre"]:
-                        resultados_programas.append({
-                            "programa": programa["nombre"],
-                            "salones_solicitados": resultado["salones_solicitados"],
-                            "laboratorios_solicitados": resultado["laboratorios_solicitados"],
-                            "salones_asignados": resultado["salones_asignados"],
-                            "laboratorios_asignados": resultado["laboratorios_asignados"],
-                            "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
-                        })
+                for programa in programas:
+                    for resultado in resultados_asignacion.get(clave, []):
+                        if resultado["programa"] == programa["nombre"]:
+                            resultados_programas.append({
+                                "programa": programa["nombre"],
+                                "salones_solicitados": resultado["salones_solicitados"],
+                                "laboratorios_solicitados": resultado["laboratorios_solicitados"],
+                                "salones_asignados": resultado["salones_asignados"],
+                                "laboratorios_asignados": resultado["laboratorios_asignados"],
+                                "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
+                            })
 
-            guardar_resultados_global()
-            guardar_estado_asignaciones()
+                guardar_resultados_global()
+                guardar_estado_asignaciones()
 
-            # Responder con los resultados completos
-            socket.send_json({
-                "status": "ok",
-                "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}.",
-                "resultados": resultados_programas  # Enviar los resultados detallados de los programas
-            })
+                socket.send_json({
+                    "status": "ok",
+                    "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}.",
+                    "resultados": resultados_programas
+                })
 
+        except zmq.ZMQError as e:
+            if detener_servidor:
+                break
+            print(f"[DTI] Error de ZMQ: {e}")
         except Exception as e:
             print(f"[DTI] Error: {e}")
-            socket.send_json({"status": "error", "mensaje": str(e)})
+            try:
+                socket.send_json({"status": "error", "mensaje": str(e)})
+            except:
+                pass
 
     socket.close()
     context.term()
+    print("[DTI] Servidor DTI detenido.")
 
 
 def iniciar_dti():
     cargar_estado_asignaciones()
     dti_thread = threading.Thread(target=manejar_dti)
     dti_thread.start()
+    dti_thread.join()  # Espera a que termine con Ctrl + C
+
 
 if __name__ == "__main__":
     iniciar_dti()

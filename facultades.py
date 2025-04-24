@@ -1,6 +1,8 @@
 import zmq
 import multiprocessing
 import time
+import signal
+import sys
 
 # Función que maneja el envío de TODOS los programas de una facultad al DTI
 def enviar_a_dti(data):
@@ -33,7 +35,6 @@ def enviar_a_dti(data):
         context.term()
 
 
-# Función que maneja los programas de una facultad
 def manejar_programas_facultad(facultad, puerto):
     context = zmq.Context()
     socket = context.socket(zmq.REP)
@@ -41,42 +42,37 @@ def manejar_programas_facultad(facultad, puerto):
 
     print(f"[Facultad {facultad}] Esperando solicitudes en puerto {puerto}...")
 
-    while True:
-        try:
+    try:
+        while True:
             mensaje = socket.recv_json()
             semestre = mensaje.get('semestre')
             programa = mensaje.get('programa')
 
             if not semestre or not programa:
-                respuesta = {"status": "error", "mensaje": "Datos incompletos"}
-                socket.send_json(respuesta)
+                socket.send_json({"status": "error", "mensaje": "Datos incompletos"})
                 continue
 
             print(f"[Facultad {facultad}] Recibido programa '{programa.get('nombre')}' para el semestre {semestre}.")
 
-            # Responder a Programas
             socket.send_json({
                 "status": "ok",
                 "mensaje": f"Programa '{programa.get('nombre')}' procesado en {facultad}"
             })
 
-            # Enviar el programa al DTI (en un solo mensaje)
             data = {
-                "programas": [programa],  # Enviamos como lista para mantener compatibilidad
+                "programas": [programa],
                 "facultad": facultad,
                 "semestre": semestre
             }
             p = multiprocessing.Process(target=enviar_a_dti, args=(data,))
             p.start()
+    except KeyboardInterrupt:
+        print(f"\n[Facultad {facultad}] Interrupción detectada. Cerrando servidor.")
+    finally:
+        socket.close()
+        context.term()
 
-        except Exception as e:
-            print(f"[Facultad {facultad}] Error: {e}")
-            break
 
-    socket.close()
-    context.term()
-
-# Función principal
 def main():
     FACULTADES = {
         "Facultad de Ciencias Sociales": 6000,
@@ -92,6 +88,18 @@ def main():
     }
 
     procesos = []
+
+    def cerrar_todo(sig, frame):
+        print("\n[Cliente] Interrupción recibida. Terminando todos los procesos...")
+        for p in procesos:
+            p.terminate()
+        for p in procesos:
+            p.join()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, cerrar_todo)
+    signal.signal(signal.SIGTERM, cerrar_todo)
+
     for facultad, puerto in FACULTADES.items():
         p = multiprocessing.Process(target=manejar_programas_facultad, args=(facultad, puerto))
         p.start()
@@ -100,5 +108,7 @@ def main():
     for p in procesos:
         p.join()
 
+
 if __name__ == "__main__":
     main()
+
