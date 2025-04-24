@@ -1,11 +1,11 @@
 import zmq
 import multiprocessing
-import time
 import signal
 import sys
-import os
 
-# Función que maneja el envío de TODOS los programas de una facultad al DTI
+# Señal de parada global para procesos hijos
+parar_evento = multiprocessing.Event()
+
 def enviar_a_dti(data):
     try:
         context = zmq.Context()
@@ -28,7 +28,6 @@ def enviar_a_dti(data):
                 if "salones_como_laboratorios" in r:
                     print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
                 print()
-
     except Exception as e:
         print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
     finally:
@@ -36,39 +35,39 @@ def enviar_a_dti(data):
         context.term()
 
 
-def manejar_programas_facultad(facultad, puerto):
+def manejar_programas_facultad(facultad, puerto, evento_parar):
     context = zmq.Context()
     socket = context.socket(zmq.REP)
     socket.bind(f"tcp://*:{puerto}")
 
-    print(f"[Facultad {facultad}] Esperando solicitudes en puerto {puerto}...")
+    print(f"[{facultad}] Esperando solicitudes en puerto {puerto}...")
 
     try:
-        while True:
-            mensaje = socket.recv_json()
-            semestre = mensaje.get('semestre')
-            programa = mensaje.get('programa')
+        while not evento_parar.is_set():
+            if socket.poll(timeout=1000):  # Espera de 1 segundo
+                mensaje = socket.recv_json()
+                semestre = mensaje.get('semestre')
+                programa = mensaje.get('programa')
 
-            if not semestre or not programa:
-                socket.send_json({"status": "error", "mensaje": "Datos incompletos"})
-                continue
+                if not semestre or not programa:
+                    socket.send_json({"status": "error", "mensaje": "Datos incompletos"})
+                    continue
 
-            print(f"[Facultad {facultad}] Recibido programa '{programa.get('nombre')}' para el semestre {semestre}.")
+                print(f"[{facultad}] Recibido programa '{programa.get('nombre')}' para el semestre {semestre}.")
+                socket.send_json({
+                    "status": "ok",
+                    "mensaje": f"Programa '{programa.get('nombre')}' procesado en {facultad}"
+                })
 
-            socket.send_json({
-                "status": "ok",
-                "mensaje": f"Programa '{programa.get('nombre')}' procesado en {facultad}"
-            })
-
-            data = {
-                "programas": [programa],
-                "facultad": facultad,
-                "semestre": semestre
-            }
-            p = multiprocessing.Process(target=enviar_a_dti, args=(data,))
-            p.start()
+                data = {
+                    "programas": [programa],
+                    "facultad": facultad,
+                    "semestre": semestre
+                }
+                p = multiprocessing.Process(target=enviar_a_dti, args=(data,))
+                p.start()
     except Exception as e:
-        print(f"[Facultad {facultad}] Error en el servidor: {e}")
+        print(f"[{facultad}] Error en el servidor: {e}")
     finally:
         socket.close()
         context.term()
@@ -91,23 +90,18 @@ def main():
     procesos = []
 
     def cerrar_todo(sig, frame):
-        try:
-            print("\n[Cliente] Interrupción recibida. Terminando todos los procesos...")
-            sys.stdout.flush()
-        except Exception:
-            pass
+        print("\n[Cliente] Señal de interrupción recibida. Finalizando procesos...")
+        parar_evento.set()
         for p in procesos:
-            if p.is_alive():
-                p.terminate()
+            p.join()
+        print("[Cliente] Todos los procesos han terminado. Saliendo.")
         sys.exit(0)
 
-    # Registrar manejadores de señal solo si es el proceso principal
-    if os.getpid() == os.getppid() or __name__ == "__main__":
-        signal.signal(signal.SIGINT, cerrar_todo)
-        signal.signal(signal.SIGTERM, cerrar_todo)
+    signal.signal(signal.SIGINT, cerrar_todo)
+    signal.signal(signal.SIGTERM, cerrar_todo)
 
     for facultad, puerto in FACULTADES.items():
-        p = multiprocessing.Process(target=manejar_programas_facultad, args=(facultad, puerto))
+        p = multiprocessing.Process(target=manejar_programas_facultad, args=(facultad, puerto, parar_evento))
         p.start()
         procesos.append(p)
 
