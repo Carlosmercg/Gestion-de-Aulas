@@ -1,0 +1,305 @@
+{
+  "semestre": "2025-2",
+  "facultades": [
+    {
+      "nombre": "Facultad de Ciencias Sociales",
+      "programas": [
+        {
+          "nombre": "Psicología",
+          "salones": 5,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Sociología",
+          "salones": 5,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Trabajo Social",
+          "salones": 6,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Antropología",
+          "salones": 8,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Comunicación",
+          "salones": 4,
+          "laboratorios": 3
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Ciencias Naturales",
+      "programas": [
+        {
+          "nombre": "Biología",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Química",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Física",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Geología",
+          "salones": 6,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Ciencias Ambientales",
+          "salones": 3,
+          "laboratorios": 4
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Ingeniería",
+      "programas": [
+        {
+          "nombre": "Ingeniería Civil",
+          "salones": 3,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Ingeniería Electrónica",
+          "salones": 7,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Ingeniería de Sistemas",
+          "salones": 6,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Ingeniería Mecánica",
+          "salones": 8,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Ingeniería Industrial",
+          "salones": 6,
+          "laboratorios": 2
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Medicina",
+      "programas": [
+        {
+          "nombre": "Medicina General",
+          "salones": 7,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Enfermería",
+          "salones": 5,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Odontología",
+          "salones": 8,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Farmacia",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Terapia Física",
+          "salones": 4,
+          "laboratorios": 3
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Derecho",
+      "programas": [
+        {
+          "nombre": "Derecho Penal",
+          "salones": 6,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Derecho Civil",
+          "salones": 4,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Derecho Internacional",
+          "salones": 5,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Derecho Laboral",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Derecho Constitucional",
+          "salones": 5,
+          "laboratorios": 4
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Artes",
+      "programas": [
+        {
+          "nombre": "Bellas Artes",
+          "salones": 5,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Música",
+          "salones": 7,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Teatro",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Danza",
+          "salones": 4,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Diseño Gráfico",
+          "salones": 8,
+          "laboratorios": 2
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Educación",
+      "programas": [
+        {
+          "nombre": "Educación Primaria",
+          "salones": 7,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Educación Secundaria",
+          "salones": 4,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Educación Especial",
+          "salones": 6,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Psicopedagogía",
+          "salones": 4,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Administración Educativa",
+          "salones": 5,
+          "laboratorios": 4
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Ciencias Económicas",
+      "programas": [
+        {
+          "nombre": "Administración de Empresas",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Contabilidad",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Economía",
+          "salones": 8,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Mercadotecnia",
+          "salones": 5,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Finanzas",
+          "salones": 8,
+          "laboratorios": 2
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Arquitectura",
+      "programas": [
+        {
+          "nombre": "Arquitectura",
+          "salones": 4,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Urbanismo",
+          "salones": 6,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Diseño de Interiores",
+          "salones": 6,
+          "laboratorios": 2
+        },
+        {
+          "nombre": "Paisajismo",
+          "salones": 4,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Restauración de Patrimonio",
+          "salones": 4,
+          "laboratorios": 4
+        }
+      ]
+    },
+    {
+      "nombre": "Facultad de Tecnología",
+      "programas": [
+        {
+          "nombre": "Desarrollo de Software",
+          "salones": 3,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Redes y Telecomunicaciones",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Ciberseguridad",
+          "salones": 5,
+          "laboratorios": 4
+        },
+        {
+          "nombre": "Inteligencia Artificial",
+          "salones": 7,
+          "laboratorios": 3
+        },
+        {
+          "nombre": "Big Data",
+          "salones": 5,
+          "laboratorios": 4
+        }
+      ]
+    }
+  ]
+}
