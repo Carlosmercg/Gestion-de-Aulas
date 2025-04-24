@@ -7,7 +7,7 @@ def enviar_a_dti(data):
     try:
         context = zmq.Context()
         socket = context.socket(zmq.REQ)
-        socket.connect("tcp://localhost:5556")
+        socket.connect("tcp://10.43.103.197:5556")
         socket.send_json(data)
         respuesta = socket.recv_json()
         print(f"[Facultad {data['facultad']}] Respuesta de DTI: {respuesta['mensaje']}")

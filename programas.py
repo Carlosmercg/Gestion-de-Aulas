@@ -7,8 +7,7 @@ def enviar_a_facultad(programa, semestre, facultad, puerto):
     try:
         context = zmq.Context()
         socket = context.socket(zmq.REQ)
-        socket.connect(f"tcp://localhost:{puerto}")
-
+        socket.connect(f"tcp://10.43.103.102:{puerto}")
         # Enviar un solo programa a la facultad
         data = {
             "semestre": semestre,

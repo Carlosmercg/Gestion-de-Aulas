@@ -117,7 +117,7 @@ def guardar_resultados_global():
 def manejar_dti():
     context = zmq.Context()
     socket = context.socket(zmq.REP)
-    socket.bind("tcp://*:5556")
+    socket.bind("tcp://10.43.103.197:5556")
 
     print("[DTI] Servidor DTI iniciado, escuchando en el puerto 5556...")
 
