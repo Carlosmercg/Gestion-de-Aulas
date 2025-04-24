@@ -3,6 +3,7 @@ import multiprocessing
 import time
 import signal
 import sys
+import os
 
 # Función que maneja el envío de TODOS los programas de una facultad al DTI
 def enviar_a_dti(data):
@@ -66,8 +67,8 @@ def manejar_programas_facultad(facultad, puerto):
             }
             p = multiprocessing.Process(target=enviar_a_dti, args=(data,))
             p.start()
-    except KeyboardInterrupt:
-        print(f"\n[Facultad {facultad}] Interrupción detectada. Cerrando servidor.")
+    except Exception as e:
+        print(f"[Facultad {facultad}] Error en el servidor: {e}")
     finally:
         socket.close()
         context.term()
@@ -90,15 +91,20 @@ def main():
     procesos = []
 
     def cerrar_todo(sig, frame):
-        print("\n[Cliente] Interrupción recibida. Terminando todos los procesos...")
+        try:
+            print("\n[Cliente] Interrupción recibida. Terminando todos los procesos...")
+            sys.stdout.flush()
+        except Exception:
+            pass
         for p in procesos:
-            p.terminate()
-        for p in procesos:
-            p.join()
+            if p.is_alive():
+                p.terminate()
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, cerrar_todo)
-    signal.signal(signal.SIGTERM, cerrar_todo)
+    # Registrar manejadores de señal solo si es el proceso principal
+    if os.getpid() == os.getppid() or __name__ == "__main__":
+        signal.signal(signal.SIGINT, cerrar_todo)
+        signal.signal(signal.SIGTERM, cerrar_todo)
 
     for facultad, puerto in FACULTADES.items():
         p = multiprocessing.Process(target=manejar_programas_facultad, args=(facultad, puerto))
@@ -111,4 +117,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
