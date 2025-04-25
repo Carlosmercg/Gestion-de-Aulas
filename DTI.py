@@ -4,6 +4,7 @@ import time
 import json
 import os
 import signal
+import sys
 
 SALONES_DISPONIBLES_ORIGINALES = 380
 LABORATORIOS_DISPONIBLES_ORIGINALES = 60
@@ -12,6 +13,7 @@ disponibilidad_por_semestre = {}
 lock = threading.Lock()
 resultados_asignacion = {}
 estado_asignaciones = {}
+
 detener_servidor = False
 
 def handler(sig, frame):
@@ -24,11 +26,11 @@ signal.signal(signal.SIGINT, handler)
 def cargar_estado_asignaciones():
     global estado_asignaciones
     archivo_estado = "resultados/estado_asignaciones.json"
-    if os.path.exists(archivo_estado):
-        with open(archivo_estado, "w", encoding="utf-8") as f:
-            json.dump({}, f, ensure_ascii=False, indent=4)
-        estado_asignaciones = {}
-        disponibilidad_por_semestre.clear()
+    os.makedirs("resultados", exist_ok=True)
+    with open(archivo_estado, "w", encoding="utf-8") as f:
+        json.dump({}, f, ensure_ascii=False, indent=4)
+    estado_asignaciones = {}
+    disponibilidad_por_semestre.clear()
 
 def guardar_estado_asignaciones():
     archivo_estado = "resultados/estado_asignaciones.json"
@@ -108,6 +110,7 @@ def guardar_resultados_global():
         resultados_por_semestre[semestre].extend([
             {**r, "facultad": facultad} for r in datos
         ])
+
     os.makedirs("resultados", exist_ok=True)
     for semestre, datos in resultados_por_semestre.items():
         with open(f"resultados/asignacion_completa_{semestre}.json", "w", encoding="utf-8") as f:
@@ -124,6 +127,7 @@ def manejar_dti():
         try:
             if socket.poll(1000):
                 mensaje = socket.recv_json()
+
                 programas = mensaje["programas"]
                 facultad = mensaje["facultad"]
                 semestre = mensaje["semestre"]
@@ -155,23 +159,17 @@ def manejar_dti():
                                 "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
                             })
 
-                estado_actual = disponibilidad_por_semestre.get(semestre, {
-                    "salones": 0,
-                    "laboratorios": 0
-                })
-
-                respuesta = {
+                socket.send_json({
                     "resultado": resultados_programas,
                     "estado": {
-                        "salones_disponibles": estado_actual["salones"],
-                        "laboratorios_disponibles": estado_actual["laboratorios"]
+                        "salones_disponibles": disponibilidad_por_semestre[semestre]["salones"],
+                        "laboratorios_disponibles": disponibilidad_por_semestre[semestre]["laboratorios"]
                     }
-                }
+                })
 
-                print(f"[DTI] Enviando respuesta a {facultad}:")
-                print(json.dumps(respuesta, indent=4, ensure_ascii=False))
+                # ✅ Guardar estado actualizado después de cada solicitud
+                guardar_estado_asignaciones()
 
-                socket.send_json(respuesta)
             else:
                 print("[DTI] Esperando solicitudes...")
                 time.sleep(1)
@@ -181,5 +179,3 @@ def manejar_dti():
 if __name__ == "__main__":
     cargar_estado_asignaciones()
     manejar_dti()
-    guardar_estado_asignaciones()
-    guardar_resultados_global()

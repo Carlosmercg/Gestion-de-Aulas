@@ -20,33 +20,45 @@ parar_evento = multiprocessing.Event()
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
 def enviar_a_dti(data):
     try:
-        context = zmq.Context()  # Crear contexto de ZeroMQ
-        socket = context.socket(zmq.REQ)  # Crear socket de tipo REQ
-        socket.connect("tcp://10.43.103.197:5556")  # Conectar al servidor DTI
+        context = zmq.Context()
+        socket = context.socket(zmq.REQ)
+        socket.connect("tcp://10.43.103.197:5556")
 
-        socket.send_json(data)  # Enviar los datos al servidor DTI
-        respuesta = socket.recv_json()  # Esperar y recibir la respuesta
+        socket.send_json(data)
+        respuesta_dti = socket.recv_json()  # Esta es la respuesta real del DTI
 
-        # Imprimir la respuesta recibida
+        # Transformar la respuesta al formato que espera la impresión de facultades
+        respuesta_transformada = {
+            "status": "ok",
+            "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
+            "resultados": respuesta_dti.get("resultado", []),
+            "estado": respuesta_dti.get("estado", {})
+        }
+
         print(f"\n[Facultad {data['facultad']}] Respuesta de DTI:")
-        print(f"  - Estado: {respuesta.get('status')}")
-        print(f"  - Mensaje: {respuesta.get('mensaje')}")
+        print(f"  - Estado: {respuesta_transformada.get('status')}")
+        print(f"  - Mensaje: {respuesta_transformada.get('mensaje')}")
 
-        if "resultados" in respuesta:
-            for r in respuesta["resultados"]:
-                print(f"  -> Programa: {r['programa']}")
-                print(f"     Salones solicitados: {r['salones_solicitados']}")
-                print(f"     Salones asignados: {r['salones_asignados']}")
-                print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
-                print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
-                if "salones_como_laboratorios" in r:
-                    print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
-                print()
+        for r in respuesta_transformada["resultados"]:
+            print(f"  -> Programa: {r['programa']}")
+            print(f"     Salones solicitados: {r['salones_solicitados']}")
+            print(f"     Salones asignados: {r['salones_asignados']}")
+            print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
+            print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
+            if "salones_como_laboratorios" in r:
+                print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
+            print()
+
+        print("  - Estado de espacios:")
+        print(f"     Salones disponibles: {respuesta_transformada['estado'].get('salones_disponibles', 'N/A')}")
+        print(f"     Laboratorios disponibles: {respuesta_transformada['estado'].get('laboratorios_disponibles', 'N/A')}")
+
     except Exception as e:
         print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
     finally:
-        socket.close()  # Cerrar el socket
-        context.term()  # Terminar el contexto de ZeroMQ
+        socket.close()
+        context.term()
+
 
 
 # Función: manejar_programas_facultad
