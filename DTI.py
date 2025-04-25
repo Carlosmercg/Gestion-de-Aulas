@@ -41,15 +41,15 @@ def guardar_estado_asignaciones():
 def procesar_programa(programa, facultad, semestre):
     with lock:
         if semestre not in estado_asignaciones:
-            estado_asignaciones[semestre] = {
-                'salones_disponibles': SALONES_DISPONIBLES_ORIGINALES,
-                'laboratorios_disponibles': LABORATORIOS_DISPONIBLES_ORIGINALES,
-                'salones_solicitados': 0,
-                'laboratorios_solicitados': 0
-            }
             disponibilidad_por_semestre[semestre] = {
                 'salones': SALONES_DISPONIBLES_ORIGINALES,
                 'laboratorios': LABORATORIOS_DISPONIBLES_ORIGINALES
+            }
+            estado_asignaciones[semestre] = {
+                'salones_disponibles': disponibilidad_por_semestre[semestre]['salones'],
+                'laboratorios_disponibles': disponibilidad_por_semestre[semestre]['laboratorios'],
+                'salones_solicitados': 0,
+                'laboratorios_solicitados': 0
             }
 
         disponibles = disponibilidad_por_semestre[semestre]
@@ -97,7 +97,9 @@ def procesar_programa(programa, facultad, semestre):
         resultados_asignacion[clave].append(resultado)
 
         estado['salones_disponibles'] = max(disponibles['salones'], 0)
-        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'], 0)
+        estado['laboratorios_disponibles'] = max(
+            disponibles['laboratorios'] + salones_usados_como_labs, 0
+        )
 
     time.sleep(1)
 
@@ -107,9 +109,8 @@ def guardar_resultados_global():
         facultad, semestre = clave.rsplit("_", 1)
         if semestre not in resultados_por_semestre:
             resultados_por_semestre[semestre] = []
-        resultados_por_semestre[semestre].extend([
-            {**r, "facultad": facultad} for r in datos
-        ])
+        resultados_por_semestre[semestre].extend([{
+            **r, "facultad": facultad} for r in datos])
 
     os.makedirs("resultados", exist_ok=True)
     for semestre, datos in resultados_por_semestre.items():

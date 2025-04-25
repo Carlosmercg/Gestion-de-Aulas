@@ -35,7 +35,7 @@ def enviar_a_dti(data):
             "estado": respuesta_dti.get("estado", {})
         }
 
-        print(f"\n[Facultad {data['facultad']}] Respuesta de DTI:")
+        print(f"\n[{data['facultad']}] Respuesta de DTI:")
         print(f"  - Estado: {respuesta_transformada.get('status')}")
         print(f"  - Mensaje: {respuesta_transformada.get('mensaje')}")
 
@@ -49,9 +49,6 @@ def enviar_a_dti(data):
                 print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
             print()
 
-        print("  - Estado de espacios:")
-        print(f"     Salones disponibles: {respuesta_transformada['estado'].get('salones_disponibles', 'N/A')}")
-        print(f"     Laboratorios disponibles: {respuesta_transformada['estado'].get('laboratorios_disponibles', 'N/A')}")
 
     except Exception as e:
         print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
