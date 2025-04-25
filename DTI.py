@@ -163,9 +163,11 @@ def manejar_dti():
 
             # Responder con los resultados completos
             socket.send_json({
-                "status": "ok",
-                "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}.",
-                "resultados": resultados_programas  # Enviar los resultados detallados de los programas
+                "resultado": resultados_programas,
+                    "estado": {
+                        "salones_disponibles": disponibilidad_por_semestre[semestre]["salones"],
+                        "laboratorios_disponibles": disponibilidad_por_semestre[semestre]["laboratorios"]
+                    }
             })
 
         except Exception as e:
