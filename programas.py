@@ -38,7 +38,8 @@ def main():
             if p.is_alive():
                 p.terminate()
                 p.join()  # Asegurarse de que cada proceso hijo termine correctamente
-        sys.exit(0)
+        print("[Cliente JSON] Todos los procesos han sido terminados.")
+        sys.exit(0)  # Asegurarse de salir correctamente
 
     # Registrar señales para Ctrl+C y otros cierres
     signal.signal(signal.SIGINT, cerrar_todo)
@@ -86,6 +87,8 @@ def main():
         print("Error: El archivo 'solicitudes.json' no tiene un formato JSON válido")
     except Exception as e:
         print(f"Error inesperado: {e}")
+
+    print("[Cliente JSON] El programa ha terminado correctamente.")
 
 if __name__ == "__main__":
     main()
