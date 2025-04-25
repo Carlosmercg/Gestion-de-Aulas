@@ -3,47 +3,41 @@ import json
 import multiprocessing
 import signal
 import sys
-from queue import Queue
+import os
 
 # Enviar un solo programa a la facultad
-def enviar_a_facultad(queue):
-    while True:
-        programa, semestre, facultad, puerto = queue.get()
-        if programa is None:
-            break
-        try:
-            context = zmq.Context()
-            socket = context.socket(zmq.REQ)
-            socket.connect(f"tcp://10.43.103.102:{puerto}")
+def enviar_a_facultad(programa, semestre, facultad, puerto):
+    try:
+        context = zmq.Context()
+        socket = context.socket(zmq.REQ)
+        socket.connect(f"tcp://10.43.103.102:{puerto}")
 
-            data = {
-                "semestre": semestre,
-                "facultad": facultad,
-                "programa": programa
-            }
+        data = {
+            "semestre": semestre,
+            "facultad": facultad,
+            "programa": programa
+        }
 
-            socket.send_json(data)
-            respuesta = socket.recv_json()
-            print(f"Respuesta de {facultad}: {respuesta['mensaje']}")
+        socket.send_json(data)
+        respuesta = socket.recv_json()
+        print(f"Respuesta de {facultad}: {respuesta['mensaje']}")
 
-        except Exception as e:
-            print(f"Error al enviar datos a la facultad en el puerto {puerto}: {e}")
-        finally:
-            socket.close()
-            context.term()
+    except Exception as e:
+        print(f"Error al enviar datos a la facultad en el puerto {puerto}: {e}")
+    finally:
+        socket.close()
+        context.term()
 
 # Función principal: leer JSON y despachar programas a las facultades
 def main():
     procesos_facultades = []
-    queue = Queue()
 
     def cerrar_todo(sig, frame):
         print("\n[Cliente JSON] Interrupción recibida. Terminando procesos...")
-        # Detener los trabajadores
-        for _ in range(multiprocessing.cpu_count()):
-            queue.put((None, None, None, None))
         for p in procesos_facultades:
-            p.join()
+            if p.is_alive():
+                p.terminate()
+                p.join()  # Asegurarse de que cada proceso hijo termine correctamente
         sys.exit(0)
 
     # Registrar señales para Ctrl+C y otros cierres
@@ -69,20 +63,16 @@ def main():
             "Facultad de Tecnología": 6090,
         }
 
-        # Iniciar el número de trabajadores igual al número de CPUs disponibles
-        for _ in range(multiprocessing.cpu_count()):
-            p = multiprocessing.Process(target=enviar_a_facultad, args=(queue,))
-            p.start()
-            procesos_facultades.append(p)
-
         # Procesar cada facultad y sus programas
         for facultad_info in programas_data["facultades"]:
             facultad = facultad_info["nombre"]
             puerto = FACULTADES.get(facultad)
             if puerto:
                 for programa in facultad_info["programas"]:
-                    # Enviar cada programa a la cola para que lo procese un trabajador
-                    queue.put((programa, semestre, facultad, puerto))
+                    # Enviar cada programa en un proceso separado
+                    p = multiprocessing.Process(target=enviar_a_facultad, args=(programa, semestre, facultad, puerto))
+                    p.start()
+                    procesos_facultades.append(p)
             else:
                 print(f"Advertencia: No se encontró puerto para la facultad '{facultad}'")
 
