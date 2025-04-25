@@ -40,21 +40,24 @@ def guardar_estado_asignaciones():
 
 def procesar_programa(programa, facultad, semestre):
     with lock:
+        # Inicializar estado y disponibilidad del semestre si no existen
         if semestre not in estado_asignaciones:
+            estado_asignaciones[semestre] = {
+                'salones_disponibles': SALONES_DISPONIBLES_ORIGINALES,
+                'laboratorios_disponibles': LABORATORIOS_DISPONIBLES_ORIGINALES,
+                'salones_solicitados': 0,
+                'laboratorios_solicitados': 0
+            }
             disponibilidad_por_semestre[semestre] = {
                 'salones': SALONES_DISPONIBLES_ORIGINALES,
                 'laboratorios': LABORATORIOS_DISPONIBLES_ORIGINALES
             }
-            estado_asignaciones[semestre] = {
-                'salones_disponibles': disponibilidad_por_semestre[semestre]['salones'],
-                'laboratorios_disponibles': disponibilidad_por_semestre[semestre]['laboratorios'],
-                'salones_solicitados': 0,
-                'laboratorios_solicitados': 0
-            }
 
+        # Referencias locales
         disponibles = disponibilidad_por_semestre[semestre]
         estado = estado_asignaciones[semestre]
 
+        # Acumulamos solicitudes
         estado['salones_solicitados'] += programa['salones']
         estado['laboratorios_solicitados'] += programa['laboratorios']
 
@@ -69,6 +72,7 @@ def procesar_programa(programa, facultad, semestre):
 
         salones_usados_como_labs = 0
 
+        # Asignación de laboratorios
         if disponibles['laboratorios'] >= programa['laboratorios']:
             disponibles['laboratorios'] -= programa['laboratorios']
             resultado["laboratorios_asignados"] = programa['laboratorios']
@@ -81,6 +85,7 @@ def procesar_programa(programa, facultad, semestre):
         else:
             print(f"[DTI] {programa['nombre']} ({facultad}) no recibió laboratorios ni salones como sustituto.")
 
+        # Asignación de salones normales
         if disponibles['salones'] >= programa['salones']:
             disponibles['salones'] -= programa['salones']
             resultado["salones_asignados"] += programa['salones']
@@ -88,20 +93,22 @@ def procesar_programa(programa, facultad, semestre):
         else:
             print(f"[DTI] {programa['nombre']} ({facultad}) no recibió salones.")
 
+        # Si se usaron salones como laboratorios, incluirlo en el resultado
         if salones_usados_como_labs > 0:
             resultado["salones_como_laboratorios"] = salones_usados_como_labs
 
+        # Guardar el resultado de la asignación
         clave = f"{facultad}_{semestre}"
         if clave not in resultados_asignacion:
             resultados_asignacion[clave] = []
         resultados_asignacion[clave].append(resultado)
 
-        estado['salones_disponibles'] = max(disponibles['salones'], 0)
-        estado['laboratorios_disponibles'] = max(
-            disponibles['laboratorios'] + salones_usados_como_labs, 0
-        )
+        # Actualizar estado de disponibilidad de recursos (salones y laboratorios)
+        estado['salones_disponibles'] = max(disponibles['salones'], 0)  # Asegurarse de que no sea negativo
+        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'] + salones_usados_como_labs, 0)  # Asegurarse de que no sea negativo
 
     time.sleep(1)
+
 
 def guardar_resultados_global():
     resultados_por_semestre = {}
