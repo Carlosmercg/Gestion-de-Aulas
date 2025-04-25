@@ -3,34 +3,26 @@ import threading
 import time
 import json
 import os
-import signal
-import sys
 
+# Disponibilidades originales
 SALONES_DISPONIBLES_ORIGINALES = 380
 LABORATORIOS_DISPONIBLES_ORIGINALES = 60
 
+# Diccionarios para manejar la disponibilidad por semestre
 disponibilidad_por_semestre = {}
+
 lock = threading.Lock()
 resultados_asignacion = {}
 estado_asignaciones = {}
 
-detener_servidor = False
-
-def handler(sig, frame):
-    global detener_servidor
-    print("\n[DTI] Señal de interrupción recibida. Deteniendo servidor...")
-    detener_servidor = True
-
-signal.signal(signal.SIGINT, handler)
-
 def cargar_estado_asignaciones():
     global estado_asignaciones
     archivo_estado = "resultados/estado_asignaciones.json"
-    os.makedirs("resultados", exist_ok=True)
-    with open(archivo_estado, "w", encoding="utf-8") as f:
-        json.dump({}, f, ensure_ascii=False, indent=4)
-    estado_asignaciones = {}
-    disponibilidad_por_semestre.clear()
+    if os.path.exists(archivo_estado):
+        with open(archivo_estado, "w", encoding="utf-8") as f:
+            json.dump({}, f, ensure_ascii=False, indent=4)
+        estado_asignaciones = {}
+        disponibilidad_por_semestre.clear()
 
 def guardar_estado_asignaciones():
     archivo_estado = "resultados/estado_asignaciones.json"
@@ -93,19 +85,17 @@ def procesar_programa(programa, facultad, semestre):
         else:
             print(f"[DTI] {programa['nombre']} ({facultad}) no recibió salones.")
 
-        # Si se usaron salones como laboratorios, incluirlo en el resultado
         if salones_usados_como_labs > 0:
             resultado["salones_como_laboratorios"] = salones_usados_como_labs
 
-        # Guardar el resultado de la asignación
         clave = f"{facultad}_{semestre}"
         if clave not in resultados_asignacion:
             resultados_asignacion[clave] = []
         resultados_asignacion[clave].append(resultado)
 
-        # Actualizar estado de disponibilidad de recursos (salones y laboratorios)
-        estado['salones_disponibles'] = max(disponibles['salones'], 0)  # Asegurarse de que no sea negativo
-        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'] + salones_usados_como_labs, 0)  # Asegurarse de que no sea negativo
+        # Actualizar estado_asignaciones con la disponibilidad restante
+        estado['salones_disponibles'] = max(disponibles['salones'], 0)  # Asegurarse que no sea negativo
+        estado['laboratorios_disponibles'] = max(disponibles['laboratorios'], 0)  # Asegurarse que no sea negativo
 
     time.sleep(1)
 
@@ -116,8 +106,9 @@ def guardar_resultados_global():
         facultad, semestre = clave.rsplit("_", 1)
         if semestre not in resultados_por_semestre:
             resultados_por_semestre[semestre] = []
-        resultados_por_semestre[semestre].extend([{
-            **r, "facultad": facultad} for r in datos])
+        resultados_por_semestre[semestre].extend([
+            {**r, "facultad": facultad} for r in datos
+        ])
 
     os.makedirs("resultados", exist_ok=True)
     for semestre, datos in resultados_por_semestre.items():
@@ -131,59 +122,64 @@ def manejar_dti():
 
     print("[DTI] Servidor DTI iniciado, escuchando en el puerto 5556...")
 
-    while not detener_servidor:
+    while True:
         try:
-            if socket.poll(1000):
-                mensaje = socket.recv_json()
+            mensaje = socket.recv_json()
 
-                programas = mensaje["programas"]
-                facultad = mensaje["facultad"]
-                semestre = mensaje["semestre"]
+            programas = mensaje["programas"]
+            facultad = mensaje["facultad"]
+            semestre = mensaje["semestre"]
 
-                print(f"[DTI] Solicitud recibida para {facultad} - {semestre}:")
-                for programa in programas:
-                    print(f"  - Programa: {programa['nombre']}, Salones solicitados: {programa['salones']}, Laboratorios solicitados: {programa['laboratorios']}")
+            print(f"[DTI] Solicitud recibida para {facultad} - {semestre}:")
+            for programa in programas:
+                print(f"  - Programa: {programa['nombre']}, Salones solicitados: {programa['salones']}, Laboratorios solicitados: {programa['laboratorios']}")
 
-                hilos = []
-                resultados_programas = []
-                for programa in programas:
-                    hilo = threading.Thread(target=procesar_programa, args=(programa, facultad, semestre))
-                    hilo.start()
-                    hilos.append(hilo)
+            hilos = []
+            resultados_programas = []  # Lista para almacenar los resultados de asignación de cada programa
+            for programa in programas:
+                hilo = threading.Thread(target=procesar_programa, args=(programa, facultad, semestre))
+                hilo.start()
+                hilos.append(hilo)
 
-                for hilo in hilos:
-                    hilo.join()
+            for hilo in hilos:
+                hilo.join()
 
+            # Recopilar resultados por programa
+            for programa in programas:
                 clave = f"{facultad}_{semestre}"
-                for programa in programas:
-                    for resultado in resultados_asignacion.get(clave, []):
-                        if resultado["programa"] == programa["nombre"]:
-                            resultados_programas.append({
-                                "programa": programa["nombre"],
-                                "salones_solicitados": resultado["salones_solicitados"],
-                                "laboratorios_solicitados": resultado["laboratorios_solicitados"],
-                                "salones_asignados": resultado["salones_asignados"],
-                                "laboratorios_asignados": resultado["laboratorios_asignados"],
-                                "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
-                            })
+                for resultado in resultados_asignacion.get(clave, []):
+                    if resultado["programa"] == programa["nombre"]:
+                        resultados_programas.append({
+                            "programa": programa["nombre"],
+                            "salones_solicitados": resultado["salones_solicitados"],
+                            "laboratorios_solicitados": resultado["laboratorios_solicitados"],
+                            "salones_asignados": resultado["salones_asignados"],
+                            "laboratorios_asignados": resultado["laboratorios_asignados"],
+                            "salones_como_laboratorios": resultado.get("salones_como_laboratorios", 0)
+                        })
 
-                socket.send_json({
-                    "resultado": resultados_programas,
-                    "estado": {
-                        "salones_disponibles": disponibilidad_por_semestre[semestre]["salones"],
-                        "laboratorios_disponibles": disponibilidad_por_semestre[semestre]["laboratorios"]
-                    }
-                })
+            guardar_resultados_global()
+            guardar_estado_asignaciones()
 
-                # ✅ Guardar estado actualizado después de cada solicitud
-                guardar_estado_asignaciones()
+            # Responder con los resultados completos
+            socket.send_json({
+                "status": "ok",
+                "mensaje": f"{len(programas)} programas procesados correctamente para {facultad}.",
+                "resultados": resultados_programas  # Enviar los resultados detallados de los programas
+            })
 
-            else:
-                print("[DTI] Esperando solicitudes...")
-                time.sleep(1)
-        except KeyboardInterrupt:
-            break
+        except Exception as e:
+            print(f"[DTI] Error: {e}")
+            socket.send_json({"status": "error", "mensaje": str(e)})
+
+    socket.close()
+    context.term()
+
+
+def iniciar_dti():
+    cargar_estado_asignaciones()
+    dti_thread = threading.Thread(target=manejar_dti)
+    dti_thread.start()
 
 if __name__ == "__main__":
-    cargar_estado_asignaciones()
-    manejar_dti()
+    iniciar_dti()
