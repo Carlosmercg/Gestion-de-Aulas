@@ -11,13 +11,23 @@ from db import (
     guardar_y_desbloquear    # NUEVO: actualiza BD y libera lock
 )
 
-BROKER_BACKEND_ADDR = "tcp://10.43.96.74:5560"
 
 SALONES_ORIG = 380
 LABS_ORIG    = 60
 
 resultados_asignacion = {}          # solo para respuesta al cliente
+HEALTH_SERVICE_EP = "tcp://10.43.96.74:6000"
 
+def _obtener_backend(ctx: zmq.Context) -> str:
+    hs = ctx.socket(zmq.REQ)
+    hs.setsockopt(zmq.RCVTIMEO, 2000)
+    hs.setsockopt(zmq.SNDTIMEO, 2000)
+    hs.connect(HEALTH_SERVICE_EP)
+    try:
+        hs.send_string("back")
+        return hs.recv_string()          # ej. tcp://10.43.96.74:5560
+    finally:
+        hs.close()
 # ------------------------------------------------------------------
 def asignar_recursos(programa, facu, semestre):
     """Realiza la asignación para UN programa dentro de la sección crítica."""
@@ -79,10 +89,13 @@ def asignar_recursos(programa, facu, semestre):
 
 # ------------------------------------------------------------------
 def manejar_dti_worker():
-    ctx   = zmq.Context()
-    sock  = ctx.socket(zmq.REP)
-    sock.connect(BROKER_BACKEND_ADDR)
-    print(f"[DTI-W] Conectado a broker {BROKER_BACKEND_ADDR}")
+    ctx  = zmq.Context()
+    sock = ctx.socket(zmq.REP)
+
+    # Conectamos al backend que el health-service diga
+    backend_addr = _obtener_backend(ctx)
+    sock.connect(backend_addr)
+    print(f"[DTI-W] Conectado a broker {backend_addr}")
 
     while True:
         try:

@@ -21,9 +21,10 @@ parar_evento = multiprocessing.Event()
 # - Utiliza ZeroMQ para enviar y recibir mensajes con el servidor DTI.
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
 
-BROKER_FRONTEND_ADDR = "tcp://10.43.96.74:5555"
 ESTADO_FILE   = "resultados/estado_asignaciones.json"
 RESULTADOS_GLOB = "resultados/asignacion_completa_{semestre}.json"
+
+HEALTH_SERVICE_EP = "tcp://10.43.96.74:6000"
 
 # Estructuras en memoria (se rellenan por cada respuesta del DTI)
 estado_asignaciones = {}          # { semestre: {salones_disponibles, ...} }
@@ -77,56 +78,69 @@ def guardar_resultados_global(semestre: str) -> None:
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(list(by_key.values()), f, ensure_ascii=False, indent=4)
 
+def _obtener_broker_front(ctx: zmq.Context) -> str:
+    """Pregunta al health-service qué broker ROUTER está activo."""
+    hs = ctx.socket(zmq.REQ)
+    hs.setsockopt(zmq.RCVTIMEO, 2000)
+    hs.setsockopt(zmq.SNDTIMEO, 2000)
+    hs.connect(HEALTH_SERVICE_EP)
+    try:
+        hs.send_string("front")
+        return hs.recv_string()       # ej. tcp://10.43.96.74:5555
+    finally:
+        hs.close()
+
+
+# Debes tener definido:
+#   HEALTH_SERVICE_EP  = "tcp://10.43.96.74:6000"
+#   def _obtener_broker_front(ctx): …   ← ya lo vimos antes
 
 def enviar_a_dti(data):
-    try:
-        context = zmq.Context()
-        socket = context.socket(zmq.REQ)
+    """
+    Envía la solicitud al DTI pasando por el broker activo.
+    Si el primario está caído, _obtener_broker_front() devolverá el secundario.
+    Reintenta una sola vez en caso de time-out.
+    """
+    ctx = zmq.Context.instance()
+    respuesta_dti = None
 
-        # ANTES: socket.connect("tcp://10.43.103.197:5556")
-        # AHORA: conectamos al broker
-        socket.connect(BROKER_FRONTEND_ADDR)
+    for intento in (1, 2):                              # 1º intento → reintento
+        broker_addr = _obtener_broker_front(ctx)
+        sock = ctx.socket(zmq.REQ)
+        sock.setsockopt(zmq.RCVTIMEO, 5000)              # 5 s para recv
+        sock.setsockopt(zmq.SNDTIMEO, 5000)              # 5 s para send
+        try:
+            sock.connect(broker_addr)
+            sock.send_json(data)
+            respuesta_dti = sock.recv_json()             # ← puede lanzar Again
+            break                                        # ✅ éxito
+        except zmq.error.Again:
+            print(f"[Facultad {data['facultad']}] "
+                  f"Broker {broker_addr} no respondió (intento {intento}).")
+        finally:
+            sock.close()
 
-        socket.send_json(data)
-        respuesta_dti = socket.recv_json()  # Esta es la respuesta real del DTI
+    if respuesta_dti is None:                           # ambos intentos fallaron
+        print(f"[Facultad {data['facultad']}] "
+              f"No se obtuvo respuesta del broker activo.")
+        return                                           # o raise, según convenga
 
-         # ACTUALIZA ESTRUCTURAS EN MEMORIA
-        semestre = data["semestre"]
-        clave    = f"{data['facultad']}_{semestre}"
-        resultados_asignacion.setdefault(clave, []).extend(respuesta_dti["resultado"])
-        estado_asignaciones[semestre] = respuesta_dti["estado"]
+    # --------------- actualizar estructuras -----------------
+    semestre = data["semestre"]
+    clave    = f"{data['facultad']}_{semestre}"
+    resultados_asignacion.setdefault(clave, []).extend(respuesta_dti["resultado"])
+    estado_asignaciones[semestre] = respuesta_dti["estado"]
+    guardar_resultados_global(semestre)
 
-        # GUARDA A DISCO (con lock)
-        guardar_resultados_global(semestre)
-
-        # Transformar la respuesta al formato que espera la impresión de facultades
-        respuesta_transformada = {
-            "status": "ok",
-            "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
-            "resultados": respuesta_dti.get("resultado", []),
-            "estado": respuesta_dti.get("estado", {})
-        }
-
-        print(f"\n[{data['facultad']}] Respuesta de DTI:")
-        print(f"  - Estado: {respuesta_transformada.get('status')}")
-        print(f"  - Mensaje: {respuesta_transformada.get('mensaje')}")
-
-        for r in respuesta_transformada["resultados"]:
-            print(f"  -> Programa: {r['programa']}")
-            print(f"     Salones solicitados: {r['salones_solicitados']}")
-            print(f"     Salones asignados: {r['salones_asignados']}")
-            print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
-            print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
-            if "salones_como_laboratorios" in r:
-                print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
-            print()
-
-
-    except Exception as e:
-        print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
-    finally:
-        socket.close()
-        context.term()
+    # --------------- salida por consola ---------------------
+    print(f"\n[{data['facultad']}] Asignación completada - Semestre {semestre}")
+    for r in respuesta_dti["resultado"]:
+        print(f"  → Programa: {r['programa']}")
+        print(f"    Salones  : {r['salones_asignados']}/{r['salones_solicitados']}")
+        print(f"    Labs     : {r['laboratorios_asignados']}/{r['laboratorios_solicitados']}")
+        if 'salones_como_laboratorios' in r:
+            print(f"    Salones usados como labs: {r['salones_como_laboratorios']}")
+        print()
 
 
 
