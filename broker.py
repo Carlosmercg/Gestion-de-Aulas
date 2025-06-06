@@ -1,52 +1,72 @@
-import zmq
-import threading
+import zmq, threading, time
+
+BROKER_IP      = "10.43.96.74"
+FRONTEND_PORT  = 5555      # facultades  / health-check
+BACKEND_PORT   = 5560      # DTI-workers
+CAPTURE_EP     = "inproc://capture"
+PING_TIMEOUT   = 10        # segundos sin noticias → worker “down”
 
 def broker():
-    context = zmq.Context()
+    ctx = zmq.Context.instance()
 
-    frontend = context.socket(zmq.ROUTER)
-    frontend.bind("tcp://10.43.96.74:5555")
+    frontend = ctx.socket(zmq.ROUTER)
+    frontend.bind(f"tcp://{BROKER_IP}:{FRONTEND_PORT}")
 
-    backend = context.socket(zmq.DEALER)
-    backend.bind("tcp://10.43.96.74:5560")
+    backend  = ctx.socket(zmq.DEALER)
+    backend.bind(f"tcp://{BROKER_IP}:{BACKEND_PORT}")
 
-    # Socket para capturar los mensajes del proxy
-    capture = context.socket(zmq.PUB)
-    capture.bind("inproc://capture")
+    # proxy capture
+    capture  = ctx.socket(zmq.PUB)
+    capture.bind(CAPTURE_EP)
 
-    print("[Broker] Iniciando broker entre facultades y DTI...")
+    print("[Broker] Proxy ROUTER ⇆ DEALER iniciado …")
 
-    def capturador(ctx):
-        subs = ctx.socket(zmq.SUB)
-        subs.connect("inproc://capture")
-        subs.setsockopt(zmq.SUBSCRIBE, b"")
+    # ----------------------------------------- #
+    # tabla de workers vivos (id → timestamp)
+    workers_alive = {}
+    alive_lock    = threading.Lock()
 
-        solicitud_counter = 1
+    # hilo 1: escucha cada frame que pasa por el proxy
+    def capturador():
+        sub = ctx.socket(zmq.SUB)
+        sub.connect(CAPTURE_EP)
+        sub.setsockopt(zmq.SUBSCRIBE, b"")     # todo
 
         while True:
-            msg = subs.recv_multipart()
+            frames = sub.recv_multipart()      # frames crudos
+            if not frames:
+                continue
 
-            if len(msg) >= 2:
-                origen = msg[0]
-                print(f"[Broker] Solicitud #{solicitud_counter} enviada desde [{origen.decode(errors='ignore')}]")
-                solicitud_counter += 1
-            else:
-                print(f"[Broker] Mensaje capturado sin formato esperado: {msg}")
+            src_id = frames[0]                 # primera parte = identidad
+            with alive_lock:
+                workers_alive[src_id] = time.time()
 
-    # Lanzar el hilo capturador PASANDO el contexto
-    threading.Thread(target=capturador, args=(context,), daemon=True).start()
+    # hilo 2: imprime tabla de workers cada 5 s
+    def reporter():
+        while True:
+            time.sleep(5)
+            now = time.time()
+            with alive_lock:
+                vivos = {k: now - v for k, v in workers_alive.items()}
+            print("\n[Broker] Estado de workers:")
+            if not vivos:
+                print("  (ningún worker ha respondido todavía)")
+            for wid, dt in vivos.items():
+                estado = "OK" if dt < PING_TIMEOUT else "TIMEOUT"
+                print(f"  • id={wid.hex()}  último={dt:4.1f}s  ⇒ {estado}")
+            print()
 
-    # Lanzar el proxy principal
+    # lanzar hilos
+    threading.Thread(target=capturador, daemon=True).start()
+    threading.Thread(target=reporter,   daemon=True).start()
+
+    # proxy bloqueante
     try:
         zmq.proxy(frontend, backend, capture)
     except zmq.ContextTerminated:
-        print("[Broker] Contexto terminado")
+        pass
     finally:
-        frontend.close()
-        backend.close()
-        capture.close()
-        context.term()
+        frontend.close(); backend.close(); capture.close(); ctx.term()
 
 if __name__ == "__main__":
-    broker_thread = threading.Thread(target=broker)
-    broker_thread.start()
+    broker()

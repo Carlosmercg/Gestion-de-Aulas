@@ -98,7 +98,6 @@ def enviar_a_dti(data):
 
         # GUARDA A DISCO (con lock)
         guardar_resultados_global(semestre)
-        guardar_estado_asignaciones()
 
         # Transformar la respuesta al formato que espera la impresión de facultades
         respuesta_transformada = {
