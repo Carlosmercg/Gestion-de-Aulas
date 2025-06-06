@@ -2,6 +2,8 @@ import zmq
 import multiprocessing
 import signal
 import sys
+from filelock import FileLock
+import os, json
 
 # Señal de parada global para procesos hijos
 parar_evento = multiprocessing.Event()
@@ -20,6 +22,36 @@ parar_evento = multiprocessing.Event()
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
 
 BROKER_FRONTEND_ADDR = "tcp://10.43.96.74:5555"
+ESTADO_FILE   = "resultados/estado_asignaciones.json"
+RESULTADOS_GLOB = "resultados/asignacion_completa_{semestre}.json"
+
+# Estructuras en memoria (se rellenan por cada respuesta del DTI)
+estado_asignaciones = {}          # { semestre: {salones_disponibles, ...} }
+resultados_asignacion = {}        # { f"{facultad}_{semestre}": [resultados...] }
+
+def _ensure_dir():
+    os.makedirs("resultados", exist_ok=True)
+
+def guardar_estado_asignaciones():
+    _ensure_dir()
+    with FileLock("resultados/lock"):
+        with open(ESTADO_FILE, "w", encoding="utf-8") as f:
+            json.dump(estado_asignaciones, f, ensure_ascii=False, indent=4)
+
+def guardar_resultados_global(semestre):
+    _ensure_dir()
+    # aplanar por semestre
+    res_sem = []
+    for clave, items in resultados_asignacion.items():
+        fac, sem = clave.rsplit("_", 1)
+        if sem == semestre:
+            res_sem.extend([{**r, "facultad": fac} for r in items])
+
+    with FileLock("resultados/lock"):
+        with open(RESULTADOS_GLOB.format(semestre=semestre),
+                  "w", encoding="utf-8") as f:
+            json.dump(res_sem, f, ensure_ascii=False, indent=4)
+
 def enviar_a_dti(data):
     try:
         context = zmq.Context()
@@ -31,6 +63,16 @@ def enviar_a_dti(data):
 
         socket.send_json(data)
         respuesta_dti = socket.recv_json()  # Esta es la respuesta real del DTI
+
+         # ACTUALIZA ESTRUCTURAS EN MEMORIA
+        semestre = data["semestre"]
+        clave    = f"{data['facultad']}_{semestre}"
+        resultados_asignacion.setdefault(clave, []).extend(respuesta_dti["resultado"])
+        estado_asignaciones[semestre] = respuesta_dti["estado"]
+
+        # GUARDA A DISCO (con lock)
+        guardar_resultados_global(semestre)
+        guardar_estado_asignaciones()
 
         # Transformar la respuesta al formato que espera la impresión de facultades
         respuesta_transformada = {
