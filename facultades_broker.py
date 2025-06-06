@@ -27,6 +27,11 @@ RESULTADOS_GLOB = "resultados/asignacion_completa_{semestre}.json"
 
 HEALTH_SERVICE_EP = "tcp://10.43.96.74:6000"
 
+BROKERS_FRONT = [
+    "tcp://10.43.96.74:5555",   # primario
+    "tcp://10.43.103.30:5556",  # secundario
+]
+
 # Estructuras en memoria (se rellenan por cada respuesta del DTI)
 estado_asignaciones = {}          # { semestre: {salones_disponibles, ...} }
 resultados_asignacion = {}        # { f"{facultad}_{semestre}": [resultados...] }
@@ -87,55 +92,71 @@ def guardar_resultados_global(semestre: str) -> None:
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(list(by_key.values()), f, ensure_ascii=False, indent=4)
 
-def _obtener_broker_front(ctx: zmq.Context) -> str:
-    """Pregunta al health-service qué broker ROUTER está activo."""
+def _obtener_broker_front(ctx: zmq.Context) -> list[str]:
+    """
+    Devuelve una lista de endpoints front.
+    • Consulta al health-service: el que responda ‘vivo’ va primero.
+    • Si el health-service no contesta (timeout) se usa la lista fija.
+    """
     hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 15000)
-    hs.setsockopt(zmq.SNDTIMEO, 3000)
+    hs.setsockopt(zmq.RCVTIMEO, 1500)   # 1,5 s
+    hs.setsockopt(zmq.SNDTIMEO,  500)
     hs.connect(HEALTH_SERVICE_EP)
+
     try:
         hs.send_string("front")
-        return hs.recv_string()       # ej. tcp://10.43.96.74:5555
+        activo = hs.recv_string()            # puede lanzar zmq.error.Again
+        # prioriza el que reportó el health-service
+        return [activo] + [ep for ep in BROKERS_FRONT if ep != activo]
+    except zmq.error.Again:
+        return BROKERS_FRONT[:]              # copia de seguridad
     finally:
         hs.close()
 
 
 def enviar_a_dti(data, start_time, end_time, time_lock):
     """
-    Envía la solicitud al DTI pasando por el broker activo.
-    Si el primario está caído, _obtener_broker_front() devolverá el secundario.
-    Reintenta una sola vez en caso de time-out.
+    Envía la solicitud al DTI por *todos* los brokers disponibles.
+    Reintenta dos veces si nadie responde dentro del RCVTIMEO.
     """
     ctx = zmq.Context.instance()
     respuesta_dti = None
 
-    for intento in (1, 2):                              # 1º intento → reintento
-        broker_addr = _obtener_broker_front(ctx)
+    for intento in (1, 2):                           # intento + reintento
+        broker_eps = _obtener_broker_front(ctx)      # ahora es LISTA
+
         sock = ctx.socket(zmq.REQ)
-        sock.setsockopt(zmq.RCVTIMEO, 30000)              
-        sock.setsockopt(zmq.SNDTIMEO, 3000)              
+        sock.setsockopt(zmq.LINGER,    0)            # cierra sin bloquear
+        sock.setsockopt(zmq.IMMEDIATE, 1)            # falla rápido si no hay peer
+        sock.setsockopt(zmq.RCVTIMEO, 30000)         # 30 s espera respuesta DTI
+        sock.setsockopt(zmq.SNDTIMEO,  3000)         # 3 s envío
+
+        for ep in broker_eps:                        # 🔗 conecta a TODOS
+            sock.connect(ep)
+
         try:
-            sock.connect(broker_addr)
             sock.send_json(data)
-            respuesta_dti = sock.recv_json()  
-            # ─── CRONÓMETRO ────────────────────────────────────────────────
+            respuesta_dti = sock.recv_json()         # puede lanzar Again
+
+            # ─ cronómetro ───────────────────────────────────────────────
             with time_lock:
                 now = time.time()
                 if start_time.value == 0.0:
-                    start_time.value = now          # primera respuesta
-                end_time.value = now                # última respuesta
-            # ────────────────────────────────────────────────────────────────           # ← puede lanzar Again
-            break                                        # ✅ éxito
+                    start_time.value = now
+                end_time.value = now
+            # ────────────────────────────────────────────────────────────
+            break                                    # ✅ éxito
+
         except zmq.error.Again:
             print(f"[Facultad {data['facultad']}] "
-                  f"Broker {broker_addr} no respondió (intento {intento}).")
+                  f"Ningún broker respondió (intento {intento}).")
         finally:
             sock.close()
 
-    if respuesta_dti is None:                           # ambos intentos fallaron
+    if respuesta_dti is None:                        # los dos intentos fallaron
         print(f"[Facultad {data['facultad']}] "
-              f"No se obtuvo respuesta del broker activo.")
-        return                                           # o raise, según convenga
+              f"No se obtuvo respuesta de ningún broker.")
+        return                              # o raise, según convenga
 
     # --------------- actualizar estructuras -----------------
     semestre = data["semestre"]
