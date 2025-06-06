@@ -132,14 +132,22 @@ def enviar_a_dti(data):
     estado_asignaciones[semestre] = respuesta_dti["estado"]
     guardar_resultados_global(semestre)
 
-    # --------------- salida por consola ---------------------
-    print(f"\n[{data['facultad']}] Asignación completada - Semestre {semestre}")
-    for r in respuesta_dti["resultado"]:
-        print(f"  → Programa: {r['programa']}")
-        print(f"    Salones  : {r['salones_asignados']}/{r['salones_solicitados']}")
-        print(f"    Labs     : {r['laboratorios_asignados']}/{r['laboratorios_solicitados']}")
-        if 'salones_como_laboratorios' in r:
-            print(f"    Salones usados como labs: {r['salones_como_laboratorios']}")
+    respuesta_transformada = {
+        "status": "ok",
+        "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
+        "resultados": respuesta_dti.get("resultado", []),
+        "estado": respuesta_dti.get("estado", {})
+    }
+
+
+    for r in respuesta_transformada["resultados"]:
+        print(f"  -> Programa: {r['programa']}")
+        print(f"     Salones solicitados: {r['salones_solicitados']}")
+        print(f"     Salones asignados: {r['salones_asignados']}")
+        print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
+        print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
+        if "salones_como_laboratorios" in r:
+            print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
         print()
 
 
