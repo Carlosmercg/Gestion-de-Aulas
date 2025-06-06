@@ -32,25 +32,51 @@ resultados_asignacion = {}        # { f"{facultad}_{semestre}": [resultados...] 
 def _ensure_dir():
     os.makedirs("resultados", exist_ok=True)
 
-def guardar_estado_asignaciones():
+def guardar_estado_asignaciones() -> None:
     _ensure_dir()
     with FileLock("resultados/lock"):
-        with open(ESTADO_FILE, "w", encoding="utf-8") as f:
-            json.dump(estado_asignaciones, f, ensure_ascii=False, indent=4)
+        if os.path.exists(ESTADO_FILE):
+            with open(ESTADO_FILE, "r", encoding="utf-8") as f:
+                acumulado = json.load(f)
+        else:
+            acumulado = {}
 
-def guardar_resultados_global(semestre):
+        # merge por semestre
+        for sem, estado in estado_asignaciones.items():
+            acumulado[sem] = estado   # reemplaza / actualiza
+
+        with open(ESTADO_FILE, "w", encoding="utf-8") as f:
+            json.dump(acumulado, f, ensure_ascii=False, indent=4)
+
+
+def guardar_resultados_global(semestre: str) -> None:
     _ensure_dir()
-    # aplanar por semestre
-    res_sem = []
+    # aplanar lo que esta FACULTAD acaba de recibir
+    nuevos = []
     for clave, items in resultados_asignacion.items():
         fac, sem = clave.rsplit("_", 1)
         if sem == semestre:
-            res_sem.extend([{**r, "facultad": fac} for r in items])
+            nuevos.extend([{**r, "facultad": fac} for r in items])
+
+    fname = RESULTADOS_GLOB.format(semestre=semestre)
 
     with FileLock("resultados/lock"):
-        with open(RESULTADOS_GLOB.format(semestre=semestre),
-                  "w", encoding="utf-8") as f:
-            json.dump(res_sem, f, ensure_ascii=False, indent=4)
+        # 1️⃣ cargar lo que ya existe
+        if os.path.exists(fname):
+            with open(fname, "r", encoding="utf-8") as f:
+                acumulado = json.load(f)
+        else:
+            acumulado = []
+
+        # 2️⃣ concatenar y quitar duplicados (clave: facultad+programa)
+        by_key = { (r["facultad"], r["programa"]) : r for r in acumulado }
+        for r in nuevos:
+            by_key[(r["facultad"], r["programa"])] = r
+
+        # 3️⃣ escribir todo junto
+        with open(fname, "w", encoding="utf-8") as f:
+            json.dump(list(by_key.values()), f, ensure_ascii=False, indent=4)
+
 
 def enviar_a_dti(data):
     try:
