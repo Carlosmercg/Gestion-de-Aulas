@@ -90,8 +90,8 @@ def guardar_resultados_global(semestre: str) -> None:
 def _obtener_broker_front(ctx: zmq.Context) -> str:
     """Pregunta al health-service qué broker ROUTER está activo."""
     hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 4000)
-    hs.setsockopt(zmq.SNDTIMEO, 4000)
+    hs.setsockopt(zmq.RCVTIMEO, 8000)
+    hs.setsockopt(zmq.SNDTIMEO, 3000)
     hs.connect(HEALTH_SERVICE_EP)
     try:
         hs.send_string("front")
@@ -112,8 +112,8 @@ def enviar_a_dti(data, start_time, end_time, time_lock):
     for intento in (1, 2):                              # 1º intento → reintento
         broker_addr = _obtener_broker_front(ctx)
         sock = ctx.socket(zmq.REQ)
-        sock.setsockopt(zmq.RCVTIMEO, 5000)              # 5 s para recv
-        sock.setsockopt(zmq.SNDTIMEO, 5000)              # 5 s para send
+        sock.setsockopt(zmq.RCVTIMEO, 8000)              # 5 s para recv
+        sock.setsockopt(zmq.SNDTIMEO, 3000)              # 5 s para send
         try:
             sock.connect(broker_addr)
             sock.send_json(data)

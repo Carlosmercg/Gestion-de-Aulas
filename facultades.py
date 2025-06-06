@@ -29,8 +29,8 @@ def enviar_a_dti(data):
         try:
             sock = ctx.socket(zmq.REQ)
             sock.connect(servidor)
-            sock.RCVTIMEO = 5000      # 3 s de espera recepción
-            sock.SNDTIMEO = 5000      # 3 s de espera envío
+            sock.RCVTIMEO = 8000      
+            sock.SNDTIMEO = 3000      
 
             sock.send_json(data)
             respuesta = sock.recv_json()
