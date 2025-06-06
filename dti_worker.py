@@ -19,15 +19,21 @@ resultados_asignacion = {}          # solo para respuesta al cliente
 HEALTH_SERVICE_EP = "tcp://10.43.96.74:6000"
 
 def _obtener_backend(ctx: zmq.Context) -> str:
+    """Pregunta al health-service qué broker ROUTER está activo."""
     hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 2000)
-    hs.setsockopt(zmq.SNDTIMEO, 2000)
+    hs.setsockopt(zmq.RCVTIMEO, 2000)  # Timeout recepción 2 segundos
+    hs.setsockopt(zmq.SNDTIMEO, 2000)  # Timeout envío 2 segundos
     hs.connect(HEALTH_SERVICE_EP)
     try:
-        hs.send_string("back")
-        return hs.recv_string()          # ej. tcp://10.43.96.74:5560
+        hs.send_string("front")
+        try:
+            return hs.recv_string()  # ej. tcp://10.43.96.74:5555
+        except zmq.Again:
+            # Timeout: no hubo respuesta del health service
+            return None
     finally:
         hs.close()
+
 # ------------------------------------------------------------------
 def asignar_recursos(programa, facu, semestre):
     """Realiza la asignación para UN programa dentro de la sección crítica."""
