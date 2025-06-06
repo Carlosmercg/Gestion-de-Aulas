@@ -100,10 +100,6 @@ def _obtener_broker_front(ctx: zmq.Context) -> str:
         hs.close()
 
 
-# Debes tener definido:
-#   HEALTH_SERVICE_EP  = "tcp://10.43.96.74:6000"
-#   def _obtener_broker_front(ctx): …   ← ya lo vimos antes
-
 def enviar_a_dti(data, start_time, end_time, time_lock):
     """
     Envía la solicitud al DTI pasando por el broker activo.

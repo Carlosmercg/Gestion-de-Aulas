@@ -19,43 +19,41 @@ parar_evento = multiprocessing.Event()
 # - Utiliza ZeroMQ para enviar y recibir mensajes con el servidor DTI.
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
 def enviar_a_dti(data):
-    try:
-        context = zmq.Context()
-        socket = context.socket(zmq.REQ)
-        socket.connect("tcp://10.43.103.197:5556")
+    servidores = [
+        "tcp://10.43.103.197:5556",  # Servidor principal
+        "tcp://10.43.96.74:5556",  # Servidor auxiliar
+    ]
 
-        socket.send_json(data)
-        respuesta_dti = socket.recv_json()  # Esta es la respuesta real del DTI
+    ctx = zmq.Context()
+    for servidor in servidores:
+        try:
+            sock = ctx.socket(zmq.REQ)
+            sock.connect(servidor)
+            sock.RCVTIMEO = 3000      # 3 s de espera recepción
+            sock.SNDTIMEO = 3000      # 3 s de espera envío
 
-        # Transformar la respuesta al formato que espera la impresión de facultades
-        respuesta_transformada = {
-            "status": "ok",
-            "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
-            "resultados": respuesta_dti.get("resultado", []),
-            "estado": respuesta_dti.get("estado", {})
-        }
+            sock.send_json(data)
+            respuesta = sock.recv_json()
 
-        print(f"\n[{data['facultad']}] Respuesta de DTI:")
-        print(f"  - Estado: {respuesta_transformada.get('status')}")
-        print(f"  - Mensaje: {respuesta_transformada.get('mensaje')}")
+            # — imprime respuesta —
+            print(f"\n[{data['facultad']}] Respuesta de {servidor}:")
+            for r in respuesta.get("resultado", []):
+                print(f"  → {r['programa']}: "
+                      f"{r['salones_asignados']}/{r['salones_solicitados']} salones, "
+                      f"{r['laboratorios_asignados']}/{r['laboratorios_solicitados']} labs")
 
-        for r in respuesta_transformada["resultados"]:
-            print(f"  -> Programa: {r['programa']}")
-            print(f"     Salones solicitados: {r['salones_solicitados']}")
-            print(f"     Salones asignados: {r['salones_asignados']}")
-            print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
-            print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
-            if "salones_como_laboratorios" in r:
-                print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
-            print()
+            sock.close()
+            return                         # ⬅️ éxito: salimos de la función
+        except Exception as e:
+            print(f"[Facultad {data['facultad']}] Error al enviar a {servidor}: {e}")
+            try:
+                sock.close()
+            except:
+                pass
 
-
-    except Exception as e:
-        print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
-    finally:
-        socket.close()
-        context.term()
-
+    # Si llegamos aquí, ningún servidor respondió
+    print(f"[Facultad {data['facultad']}] No se pudo conectar a ningún servidor DTI.")
+    ctx.term()
 
 
 # Función: manejar_programas_facultad
