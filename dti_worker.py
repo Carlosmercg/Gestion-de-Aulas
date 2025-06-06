@@ -39,25 +39,6 @@ def cargar_estado_asignaciones() -> None:
     estado_asignaciones.clear()
     disponibilidad_por_semestre.clear()
 
-def guardar_estado_asignaciones() -> None:
-    archivo_estado = "resultados/estado_asignaciones.json"
-    os.makedirs("resultados", exist_ok=True)
-    with open(archivo_estado, "w", encoding="utf-8") as f:
-        json.dump(estado_asignaciones, f, ensure_ascii=False, indent=4)
-
-def guardar_resultados_global() -> None:
-    resultados_por_semestre = {}
-    for clave, datos in resultados_asignacion.items():
-        facultad, semestre = clave.rsplit("_", 1)
-        resultados_por_semestre.setdefault(semestre, []).extend(
-            [{**r, "facultad": facultad} for r in datos]
-        )
-    os.makedirs("resultados", exist_ok=True)
-    for semestre, datos in resultados_por_semestre.items():
-        with open(f"resultados/asignacion_completa_{semestre}.json",
-                  "w", encoding="utf-8") as f:
-            json.dump(datos, f, ensure_ascii=False, indent=4)
-
 # ——————————————————————————————————————————
 # Lógica de negocio (idéntica a tu DTI)
 # ——————————————————————————————————————————
