@@ -2,7 +2,11 @@ import zmq
 import multiprocessing
 import signal
 import sys
+import time  
 
+inicio_total = multiprocessing.Value('d', 0.0)   # 1.ª respuesta exitosa (epoch)
+fin_total    = multiprocessing.Value('d', 0.0)   # Última respuesta exitosa
+time_lock    = multiprocessing.Lock()            # protege ambas variables
 # Señal de parada global para procesos hijos
 parar_evento = multiprocessing.Event()
 
@@ -40,8 +44,16 @@ def enviar_a_dti(data, *, timeout_recv=55_000, timeout_send=3_000):
 
         try:
             sock.connect(servidor)
+            t0 = time.perf_counter()   
             sock.send_json(data)           # puede lanzar zmq.Again si pasa SNDTIMEO
-            respuesta = sock.recv_json()   # idem con RCVTIMEO
+            respuesta = sock.recv_json() 
+            t1 = time.perf_counter()  # idem con RCVTIMEO
+
+            now = time.time()              # epoch en segundos
+            with time_lock:
+                if inicio_total.value == 0:  # primera vez
+                    inicio_total.value = now
+                fin_total.value = now    
 
             # ÉXITO ───────────────────────────────────────────────────────────
             print(f"\n[{data['facultad']}] Respuesta de {servidor}:")
@@ -152,6 +164,13 @@ def main():
         for p in procesos:
             p.join()  # Esperar que todos los procesos terminen
         print("[Cliente] Todos los procesos han terminado. Saliendo.")
+        with time_lock:
+            if inicio_total.value and fin_total.value:
+                delta = fin_total.value - inicio_total.value
+                print(f"[MÉTRICA] Duración total (primera ↠ última respuesta): "
+                      f"{delta:.3f} s")
+            else:
+                print("[MÉTRICA] No se recibió ninguna respuesta exitosa.")
         sys.exit(0)  # Finalizar el programa
 
     signal.signal(signal.SIGINT, cerrar_todo)  # Manejar interrupciones
