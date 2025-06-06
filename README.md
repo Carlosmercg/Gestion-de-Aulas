@@ -31,10 +31,14 @@ Cada facultad envía solicitudes de salones y laboratorios que son procesadas po
 |-----------------|------------------|--------------------|----------------------------------------|
 | Programas       | `10.43.103.204`  | -                  | Envía a `Facultades`                   |
 | Facultades      | `10.43.103.102`  | 6000–6090          | Cada facultad tiene un puerto propio   |
-| Facultades_broker      | `10.43.103.102`  | 6000–6090 // conecta a :5550           | Cada facultad tiene un puerto propio   |
-| DTI (v1)        | `10.43.103.197`  | 5556               | Comunicación directa desde Facultades  |
+| DTI (v1)        | `10.43.103.96.74`  | 5556               | Comunicación directa desde Facultades  |
+| DTI_Respaldo (v1)        | `10.43.103.197`  | 5556               | Comunicación directa desde Facultades  |
+| HealtChecker (v1)        | Dinamica  | 5556               | Revision si DTI esta vivo, para cambios con el DTI_Respaldo  |
 | DTI Worker (v2) | Dinámica         | conecta a :5560    | Comunicación interna con Broker        |
+| Facultades_broker (v2)      | `10.43.103.102`  | 6000–6090 // conecta a :5550           | Cada facultad tiene un puerto propio   |
 | Broker (v2)     | `10.43.96.74`    | 5555 (frontend), 5560 (backend) | Balanceo ROUTER ⇄ DEALER |
+| Broker_sec (v2)     | `10.43.103.30`    | 5556 (frontend), 5561 (backend) | Balanceo ROUTER ⇄ DEALER (respaldo) |
+| health_checkbb (v2)        | `10.43.96.74`  | 6000               | Revision si Broker esta vivo, para cambios con el Broker_sec  |
 
 ---
 
@@ -61,16 +65,22 @@ Cada facultad envía solicitudes de salones y laboratorios que son procesadas po
 # En DTI (10.43.103.197)
 python DTI.py
 
+# En DTI respaldo (10.43.96.74)
+python DTI_Respaldo.py
+
+# En healtcheck (Dinamico)
+python HealtChecker.py
+
 # En Facultades (10.43.103.102)
 python facultades.py
-
-# En Programas (10.43.103.204)
-python programas.py
 
 #Crear solicitudes
 Hay programa que simula la solicitudes, es decir crea el json
 se compila antes de compilar programas
 crearsolicitudes.py
+
+# En Programas (10.43.103.204)
+python programas.py
 ```
 ## 🧪 Ejecución
 
@@ -80,19 +90,25 @@ crearsolicitudes.py
 # En Broker (10.43.96.74)
 python broker.py
 
+# En Broker respaldo (10.43.103.30)
+python broker_sec.py
+
+# En healtcheck (10.43.96.74)
+python health_checkbb.py
+
 # En DTI Worker(s)
 python dti_worker.py   # puede ejecutar múltiples instancias
 
 # En Facultades (10.43.103.102)
 python facultades_broker.py   # ahora conecta con el broker
 
-# En Programas (10.43.103.204)
-python programas.py
-
 #Crear solicitudes
 Hay programa que simula la solicitudes, es decir crea el json
 se compila antes de compilar programas
 crearsolicitudes.py
+
+# En Programas (10.43.103.204)
+python programas.py
 ```
 ---
 
