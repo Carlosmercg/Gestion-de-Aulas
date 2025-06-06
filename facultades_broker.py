@@ -78,24 +78,17 @@ def guardar_resultados_global(semestre: str) -> None:
         with open(fname, "w", encoding="utf-8") as f:
             json.dump(list(by_key.values()), f, ensure_ascii=False, indent=4)
 
-import zmq
-
-def _obtener_broker_front(ctx: zmq.Context) -> str | None:
+def _obtener_broker_front(ctx: zmq.Context) -> str:
     """Pregunta al health-service qué broker ROUTER está activo."""
     hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 2000)  # Timeout recepción 2 segundos
-    hs.setsockopt(zmq.SNDTIMEO, 2000)  # Timeout envío 2 segundos
+    hs.setsockopt(zmq.RCVTIMEO, 2000)
+    hs.setsockopt(zmq.SNDTIMEO, 2000)
     hs.connect(HEALTH_SERVICE_EP)
     try:
         hs.send_string("front")
-        try:
-            return hs.recv_string()  # ej. tcp://10.43.96.74:5555
-        except zmq.Again:
-            # Timeout: no hubo respuesta del health service
-            return None
+        return hs.recv_string()       # ej. tcp://10.43.96.74:5555
     finally:
         hs.close()
-
 
 
 # Debes tener definido:
@@ -140,11 +133,11 @@ def enviar_a_dti(data):
     guardar_resultados_global(semestre)
 
     respuesta_transformada = {
-        "status": "ok",
-        "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
-        "resultados": respuesta_dti.get("resultado", []),
-        "estado": respuesta_dti.get("estado", {})
-    }
+            "status": "ok",
+            "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
+            "resultados": respuesta_dti.get("resultado", []),
+            "estado": respuesta_dti.get("estado", {})
+        }
 
 
     for r in respuesta_transformada["resultados"]:
