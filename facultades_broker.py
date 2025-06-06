@@ -90,7 +90,7 @@ def guardar_resultados_global(semestre: str) -> None:
 def _obtener_broker_front(ctx: zmq.Context) -> str:
     """Pregunta al health-service qué broker ROUTER está activo."""
     hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 8000)
+    hs.setsockopt(zmq.RCVTIMEO, 15000)
     hs.setsockopt(zmq.SNDTIMEO, 3000)
     hs.connect(HEALTH_SERVICE_EP)
     try:
