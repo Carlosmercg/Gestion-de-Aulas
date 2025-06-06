@@ -36,7 +36,7 @@ def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
 
         salones_usados_como_labs = 0
 
-        # --- Asignación de laboratorios ---
+        # Asignar laboratorios o salones para laboratorios
         if disponibles["laboratorios"] >= programa["laboratorios"]:
             disponibles["laboratorios"] -= programa["laboratorios"]
             resultado["laboratorios_asignados"] = programa["laboratorios"]
@@ -52,7 +52,7 @@ def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
             print(f"[DTI-W] {programa['nombre']} ({facultad}) no recibió "
                   "laboratorios ni salones como sustituto.", flush=True)
 
-        # --- Asignación de salones normales ---
+        # Asignar salones normales
         if disponibles["salones"] >= programa["salones"]:
             disponibles["salones"] -= programa["salones"]
             resultado["salones_asignados"] += programa["salones"]
@@ -70,6 +70,7 @@ def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
         resultados_asignacion.setdefault(clave, []).append(resultado)
 
 
+
 # ------------------------------------------------------------------
 def manejar_dti_worker() -> None:
     ctx = zmq.Context()
@@ -84,14 +85,9 @@ def manejar_dti_worker() -> None:
             semestre  = msg["semestre"]
             programas = msg["programas"]
 
-            hilos = []
+            # Procesar secuencialmente para evitar conflictos en la BD
             for prog in programas:
-                t = threading.Thread(target=procesar_programa,
-                                     args=(prog, facultad, semestre))
-                t.start()
-                hilos.append(t)
-            for t in hilos:
-                t.join()
+                procesar_programa(prog, facultad, semestre)
 
             # preparar respuesta
             clave = f"{facultad}_{semestre}"
@@ -114,6 +110,7 @@ def manejar_dti_worker() -> None:
         except Exception as e:
             print(f"[DTI-W] Error: {e}")
             sock.send_json({"status": "error", "mensaje": str(e)})
+
 
 # ------------------------------------------------------------------
 def iniciar_dti_worker() -> None:
