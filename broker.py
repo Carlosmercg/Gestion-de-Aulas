@@ -1,4 +1,4 @@
-import zmq, threading, time
+import zmq, threading, time 
 
 BROKER_IP        = "10.43.96.74"
 FRONT_PORT       = 5555
@@ -45,7 +45,8 @@ def broker():
                 print("  (ninguno)")
             for wid, dt in status.items():
                 state = "OK" if dt < TIMEOUT_WORKER else "TIMEOUT"
-                print(f"  • {wid.decode()[:6]}  último {dt:4.1f}s → {state}")
+                # Usar .hex() para mostrar los bytes como hex sin error
+                print(f"  • {wid.hex()[:6]}  último {dt:4.1f}s → {state}")
             print()
 
     threading.Thread(target=capturador, daemon=True).start()
