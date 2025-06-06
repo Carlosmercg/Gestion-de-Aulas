@@ -18,7 +18,7 @@ parar_evento = multiprocessing.Event()
 # Uso de recursos:
 # - Utiliza ZeroMQ para enviar y recibir mensajes con el servidor DTI.
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
-def enviar_a_dti(data, *, timeout_recv=40_000, timeout_send=3_000):
+def enviar_a_dti(data, *, timeout_recv=55_000, timeout_send=3_000):
     """Envía `data` a la primera instancia DTI que responda.
     Solo imprime errores si todas fallan.
     """
