@@ -16,18 +16,10 @@ SALONES_ORIG = 380
 LABS_ORIG    = 60
 
 resultados_asignacion = {}          # solo para respuesta al cliente
-HEALTH_SERVICE_EP = "tcp://10.43.96.74:6000"
 
-def _obtener_backend(ctx: zmq.Context) -> str:
-    hs = ctx.socket(zmq.REQ)
-    hs.setsockopt(zmq.RCVTIMEO, 2000)
-    hs.setsockopt(zmq.SNDTIMEO, 2000)
-    hs.connect(HEALTH_SERVICE_EP)
-    try:
-        hs.send_string("back")
-        return hs.recv_string()          # ej. tcp://10.43.96.74:5560
-    finally:
-        hs.close()
+PRIMARY_BACK   = "tcp://10.43.96.74:5560"
+SECONDARY_BACK = "tcp://10.43.103.30:5561"
+
 # ------------------------------------------------------------------
 def asignar_recursos(programa, facu, semestre):
     """Realiza la asignación para UN programa dentro de la sección crítica."""
@@ -92,18 +84,23 @@ def manejar_dti_worker():
     ctx  = zmq.Context()
     sock = ctx.socket(zmq.REP)
 
-    # Conectamos al backend que el health-service diga
-    backend_addr = _obtener_backend(ctx)
-    sock.connect(backend_addr)
-    print(f"[DTI-W] Conectado a broker {backend_addr}")
+    # Opciones que evitan bloqueos y permiten conmutar rápido
+    sock.setsockopt(zmq.LINGER,    0)   # cierra sin esperar
+    sock.setsockopt(zmq.IMMEDIATE, 1)   # error inmediato si no hay peer
+    sock.setsockopt(zmq.RCVTIMEO,  8000)  # espera de respuesta del broker
+    sock.setsockopt(zmq.SNDTIMEO,  3000)  # espera de envío al broker
+
+    # 🔗 Conéctate a LOS DOS brokers
+    for ep in (PRIMARY_BACK, SECONDARY_BACK):
+        sock.connect(ep)
+    print(f"[DTI-W] Conectado a {PRIMARY_BACK} y {SECONDARY_BACK}")
 
     while True:
         try:
-            msg = sock.recv_json()
+            msg = sock.recv_json()            # llegará de cualquiera de los brokers
 
-            # Detectar ping health check
+            # Health-check del broker
             if msg.get("tipo") == "ping":
-                # Respuesta rápida sin prints ni lógica de asignación
                 sock.send_json({"status": "ok"})
                 continue
 
@@ -111,7 +108,7 @@ def manejar_dti_worker():
             semestre  = msg["semestre"]
             programas = msg["programas"]
 
-            # Procesar secuencialmente (ya no creamos hilos por programa)
+            # Procesar secuencialmente cada programa
             for prog in programas:
                 asignar_recursos(prog, facu, semestre)
 
@@ -119,11 +116,8 @@ def manejar_dti_worker():
             clave = f"{facu}_{semestre}"
             resp  = resultados_asignacion.get(clave, [])
 
-            # Leer saldo final para el semestre
-            _, _, disp = obtener_y_bloquear(
-                semestre, SALONES_ORIG, LABS_ORIG
-            )
-            # liberamos enseguida; no modificamos
+            # Leer saldo final
+            _, _, disp = obtener_y_bloquear(semestre, SALONES_ORIG, LABS_ORIG)
             from filelock import FileLock
             FileLock("recursos.db.lock").release()
 
@@ -135,6 +129,10 @@ def manejar_dti_worker():
                 }
             })
 
+        except zmq.error.Again:
+            # Timeout → el broker al que se envió no respondió.
+            # ZeroMQ intentará la otra ruta en la próxima operación.
+            continue
         except Exception as e:
             print(f"[DTI-W] Error: {e}", flush=True)
             sock.send_json({"status": "error", "mensaje": str(e)})

@@ -112,8 +112,8 @@ def enviar_a_dti(data, start_time, end_time, time_lock):
     for intento in (1, 2):                              # 1º intento → reintento
         broker_addr = _obtener_broker_front(ctx)
         sock = ctx.socket(zmq.REQ)
-        sock.setsockopt(zmq.RCVTIMEO, 8000)              # 5 s para recv
-        sock.setsockopt(zmq.SNDTIMEO, 3000)              # 5 s para send
+        sock.setsockopt(zmq.RCVTIMEO, 30000)              
+        sock.setsockopt(zmq.SNDTIMEO, 3000)              
         try:
             sock.connect(broker_addr)
             sock.send_json(data)
