@@ -32,22 +32,6 @@ resultados_asignacion = {}        # { f"{facultad}_{semestre}": [resultados...] 
 def _ensure_dir():
     os.makedirs("resultados", exist_ok=True)
 
-def guardar_estado_asignaciones() -> None:
-    _ensure_dir()
-    with FileLock("resultados/lock"):
-        if os.path.exists(ESTADO_FILE):
-            with open(ESTADO_FILE, "r", encoding="utf-8") as f:
-                acumulado = json.load(f)
-        else:
-            acumulado = {}
-
-        # merge por semestre
-        for sem, estado in estado_asignaciones.items():
-            acumulado[sem] = estado   # reemplaza / actualiza
-
-        with open(ESTADO_FILE, "w", encoding="utf-8") as f:
-            json.dump(acumulado, f, ensure_ascii=False, indent=4)
-
 
 def guardar_resultados_global(semestre: str) -> None:
     _ensure_dir()
@@ -98,7 +82,7 @@ def enviar_a_dti(data):
 
         # GUARDA A DISCO (con lock)
         guardar_resultados_global(semestre)
-        guardar_estado_asignaciones()
+    
 
         # Transformar la respuesta al formato que espera la impresión de facultades
         respuesta_transformada = {

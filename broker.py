@@ -16,8 +16,7 @@ def broker():
 
     print("[Broker] Iniciando broker entre facultades y DTI...")
 
-    def capturador():
-        ctx = zmq.Context()
+    def capturador(ctx):
         subs = ctx.socket(zmq.SUB)
         subs.connect("inproc://capture")
         subs.setsockopt(zmq.SUBSCRIBE, b"")
@@ -28,15 +27,14 @@ def broker():
             msg = subs.recv_multipart()
 
             if len(msg) >= 2:
-                # Solo mostramos lo básico, no todo el contenido
-                origen = msg[0]  # Identidad del cliente (ej. facultad)
+                origen = msg[0]
                 print(f"[Broker] Solicitud #{solicitud_counter} enviada desde [{origen.decode(errors='ignore')}]")
                 solicitud_counter += 1
             else:
                 print(f"[Broker] Mensaje capturado sin formato esperado: {msg}")
 
-    # Lanzar el hilo capturador
-    threading.Thread(target=capturador, daemon=True).start()
+    # Lanzar el hilo capturador PASANDO el contexto
+    threading.Thread(target=capturador, args=(context,), daemon=True).start()
 
     # Lanzar el proxy principal
     try:
