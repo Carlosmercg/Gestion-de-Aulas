@@ -16,9 +16,9 @@ resultados_asignacion = {}          # sólo para devolver al cliente
 lock = threading.Lock()             # protege operaciones por programa
 
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
 def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
     with lock:
-        # 1️⃣ obtener contadores actuales de la BD
         disponibles = obtener_disponibilidad(
             semestre,
             SALONES_DISPONIBLES_ORIGINALES,
@@ -36,28 +36,39 @@ def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
 
         salones_usados_como_labs = 0
 
-        # Asignación de laboratorios
+        # --- Asignación de laboratorios ---
         if disponibles["laboratorios"] >= programa["laboratorios"]:
             disponibles["laboratorios"] -= programa["laboratorios"]
             resultado["laboratorios_asignados"] = programa["laboratorios"]
+            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
+                  f"{programa['laboratorios']} laboratorios.", flush=True)
         elif disponibles["salones"] >= programa["laboratorios"]:
             disponibles["salones"] -= programa["laboratorios"]
             resultado["salones_asignados"] += programa["laboratorios"]
             salones_usados_como_labs = programa["laboratorios"]
-        # Asignación de salones normales
+            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
+                  f"{programa['laboratorios']} salones como laboratorios.", flush=True)
+        else:
+            print(f"[DTI-W] {programa['nombre']} ({facultad}) no recibió "
+                  "laboratorios ni salones como sustituto.", flush=True)
+
+        # --- Asignación de salones normales ---
         if disponibles["salones"] >= programa["salones"]:
             disponibles["salones"] -= programa["salones"]
             resultado["salones_asignados"] += programa["salones"]
+            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
+                  f"{programa['salones']} salones.", flush=True)
+        else:
+            print(f"[DTI-W] {programa['nombre']} ({facultad}) no recibió salones.", flush=True)
 
         if salones_usados_como_labs:
             resultado["salones_como_laboratorios"] = salones_usados_como_labs
 
-        # 2️⃣ actualizar BD con contadores nuevos
         actualizar_disponibilidad(semestre, disponibles)
 
-        # guardar en memoria para respuesta
         clave = f"{facultad}_{semestre}"
         resultados_asignacion.setdefault(clave, []).append(resultado)
+
 
 # ------------------------------------------------------------------
 def manejar_dti_worker() -> None:
