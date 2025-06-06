@@ -156,8 +156,6 @@ def manejar_dti_worker() -> None:
                         resultado.get("salones_como_laboratorios", 0),
                 })
 
-            guardar_resultados_global()
-            guardar_estado_asignaciones()
 
             socket.send_json({
                 "resultado": resultados_programas,
