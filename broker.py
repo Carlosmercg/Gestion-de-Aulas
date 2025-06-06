@@ -1,62 +1,52 @@
-import zmq, threading, time 
-
-BROKER_IP        = "10.43.96.74"
-FRONT_PORT       = 5555
-BACK_PORT        = 5560
-CAPTURE_EP       = "inproc://capture"
-TIMEOUT_WORKER   = 15        # s sin tráfico ⇒ TIMEOUT
+import zmq
+import threading
 
 def broker():
-    ctx = zmq.Context.instance()
+    context = zmq.Context()
 
-    front = ctx.socket(zmq.ROUTER)
-    front.bind(f"tcp://{BROKER_IP}:{FRONT_PORT}")
+    frontend = context.socket(zmq.ROUTER)
+    frontend.bind("tcp://10.43.96.74:5555")
 
-    back  = ctx.socket(zmq.DEALER)
-    back.bind(f"tcp://{BROKER_IP}:{BACK_PORT}")
+    backend = context.socket(zmq.DEALER)
+    backend.bind("tcp://10.43.96.74:5560")
 
-    cap   = ctx.socket(zmq.PUB)
-    cap.bind(CAPTURE_EP)
+    # Socket para capturar los mensajes del proxy
+    capture = context.socket(zmq.PUB)
+    capture.bind("inproc://capture")
 
-    workers = {}          # id (bytes) → último timestamp
-    w_lock  = threading.Lock()
+    print("[Broker] Iniciando broker entre facultades y DTI...")
 
-    # ----- hilo 1: captura tráfico y marca workers vivos ---------
-    def capturador():
-        sub = ctx.socket(zmq.SUB)
-        sub.connect(CAPTURE_EP)
-        sub.setsockopt(zmq.SUBSCRIBE, b"")
+    def capturador(ctx):
+        subs = ctx.socket(zmq.SUB)
+        subs.connect("inproc://capture")
+        subs.setsockopt(zmq.SUBSCRIBE, b"")
+
+        solicitud_counter = 1
+
         while True:
-            frames = sub.recv_multipart()
-            if frames:
-                wid = frames[0]            # identidad que envía
-                with w_lock:
-                    workers[wid] = time.time()
+            msg = subs.recv_multipart()
 
-    # ----- hilo 2: imprime tabla cada 5 s ------------------------
-    def reporter():
-        while True:
-            time.sleep(5)
-            now   = time.time()
-            with w_lock:
-                status = {wid: now - ts for wid, ts in workers.items()}
-            print("\n[Broker] Workers registrados:")
-            if not status:
-                print("  (ninguno)")
-            for wid, dt in status.items():
-                state = "OK" if dt < TIMEOUT_WORKER else "TIMEOUT"
-                # Usar .hex() para mostrar los bytes como hex sin error
-                print(f"  • {wid.hex()[:6]}  último {dt:4.1f}s → {state}")
-            print()
+            if len(msg) >= 2:
+                origen = msg[0]
+                print(f"[Broker] Solicitud #{solicitud_counter} enviada desde [{origen.decode(errors='ignore')}]")
+                solicitud_counter += 1
+            else:
+                print(f"[Broker] Mensaje capturado sin formato esperado: {msg}")
 
-    threading.Thread(target=capturador, daemon=True).start()
-    threading.Thread(target=reporter,   daemon=True).start()
+    # Lanzar el hilo capturador PASANDO el contexto
+    threading.Thread(target=capturador, args=(context,), daemon=True).start()
 
-    print("[Broker] Proxy ROUTER⇆DEALER ejecutándose …")
+    # Lanzar el proxy principal
     try:
-        zmq.proxy(front, back, cap)
+        zmq.proxy(frontend, backend, capture)
     except zmq.ContextTerminated:
-        pass
+        print("[Broker] Contexto terminado")
+    finally:
+        frontend.close()
+        backend.close()
+        capture.close()
+        context.term()
 
 if __name__ == "__main__":
-    broker()
+    broker_thread = threading.Thread(target=broker)
+    broker_thread.start()
