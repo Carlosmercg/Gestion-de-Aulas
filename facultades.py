@@ -2,7 +2,11 @@ import zmq
 import multiprocessing
 import signal
 import sys
+import time  
 
+inicio_total = multiprocessing.Value('d', 0.0)   # 1.ª respuesta exitosa (epoch)
+fin_total    = multiprocessing.Value('d', 0.0)   # Última respuesta exitosa
+time_lock    = multiprocessing.Lock()            # protege ambas variables
 # Señal de parada global para procesos hijos
 parar_evento = multiprocessing.Event()
 
@@ -18,44 +22,60 @@ parar_evento = multiprocessing.Event()
 # Uso de recursos:
 # - Utiliza ZeroMQ para enviar y recibir mensajes con el servidor DTI.
 # - Maneja errores de comunicación y cierra el socket y contexto al finalizar.
-def enviar_a_dti(data):
-    try:
-        context = zmq.Context()
-        socket = context.socket(zmq.REQ)
-        socket.connect("tcp://10.43.103.197:5556")
+def enviar_a_dti(data, *, timeout_recv=55_000, timeout_send=3_000):
+    """Envía `data` a la primera instancia DTI que responda.
+    Solo imprime errores si todas fallan.
+    """
+    servidores = [
+        "tcp://10.43.103.197:5556",  # primario
+        "tcp://10.43.96.74:5556",    # respaldo
+    ]
 
-        socket.send_json(data)
-        respuesta_dti = socket.recv_json()  # Esta es la respuesta real del DTI
+    ctx = zmq.Context.instance()
+    errores = []                      # guardamos los fallos para mostrarlos solo si nadie respondió
 
-        # Transformar la respuesta al formato que espera la impresión de facultades
-        respuesta_transformada = {
-            "status": "ok",
-            "mensaje": f"Asignación completada para {data['facultad']} - Semestre {data['semestre']}",
-            "resultados": respuesta_dti.get("resultado", []),
-            "estado": respuesta_dti.get("estado", {})
-        }
+    for servidor in servidores:
+        sock = ctx.socket(zmq.REQ)
+        # opciones que evitan bloqueos
+        sock.setsockopt(zmq.LINGER, 0)     # cierra sin esperar
+        sock.setsockopt(zmq.IMMEDIATE, 1)  # falla instantáneamente si no hay ruta
+        sock.RCVTIMEO = timeout_recv       # ms
+        sock.SNDTIMEO = timeout_send       # ms
 
-        print(f"\n[{data['facultad']}] Respuesta de DTI:")
-        print(f"  - Estado: {respuesta_transformada.get('status')}")
-        print(f"  - Mensaje: {respuesta_transformada.get('mensaje')}")
+        try:
+            sock.connect(servidor)
+            t0 = time.perf_counter()   
+            sock.send_json(data)           # puede lanzar zmq.Again si pasa SNDTIMEO
+            respuesta = sock.recv_json() 
+            t1 = time.perf_counter()  # idem con RCVTIMEO
 
-        for r in respuesta_transformada["resultados"]:
-            print(f"  -> Programa: {r['programa']}")
-            print(f"     Salones solicitados: {r['salones_solicitados']}")
-            print(f"     Salones asignados: {r['salones_asignados']}")
-            print(f"     Laboratorios solicitados: {r['laboratorios_solicitados']}")
-            print(f"     Laboratorios asignados: {r['laboratorios_asignados']}")
-            if "salones_como_laboratorios" in r:
-                print(f"     Salones usados como laboratorios: {r['salones_como_laboratorios']}")
-            print()
+            now = time.time()              # epoch en segundos
+            with time_lock:
+                if inicio_total.value == 0:  # primera vez
+                    inicio_total.value = now
+                fin_total.value = now    
 
+            # ÉXITO ───────────────────────────────────────────────────────────
+            print(f"\n[{data['facultad']}] Respuesta de {servidor}:")
+            for r in respuesta.get("resultado", []):
+                print(f"  → {r['programa']}: "
+                      f"{r['salones_asignados']}/{r['salones_solicitados']} salones, "
+                      f"{r['laboratorios_asignados']}/{r['laboratorios_solicitados']} labs")
+            sock.close()
+            return                         # salimos: ya recibimos una respuesta válida
 
-    except Exception as e:
-        print(f"[Facultad {data['facultad']}] Error al enviar al DTI: {e}")
-    finally:
-        socket.close()
-        context.term()
+        except zmq.error.Again:
+            errores.append(f"{servidor}: timeout")
+        except Exception as e:
+            errores.append(f"{servidor}: {e}")
 
+        finally:
+            sock.close()
+
+    # NINGÚN DTI RESPONDIÓ ────────────────────────────────────────────────────
+    print(f"[Facultad {data['facultad']}] No se pudo conectar a ningún servidor DTI.")
+    for err in errores:                      # imprime la lista solo una vez
+        print(f"  · {err}")
 
 
 # Función: manejar_programas_facultad
@@ -144,6 +164,13 @@ def main():
         for p in procesos:
             p.join()  # Esperar que todos los procesos terminen
         print("[Cliente] Todos los procesos han terminado. Saliendo.")
+        with time_lock:
+            if inicio_total.value and fin_total.value:
+                delta = fin_total.value - inicio_total.value
+                print(f"[MÉTRICA] Duración total (primera ↠ última respuesta): "
+                      f"{delta:.3f} s")
+            else:
+                print("[MÉTRICA] No se recibió ninguna respuesta exitosa.")
         sys.exit(0)  # Finalizar el programa
 
     signal.signal(signal.SIGINT, cerrar_todo)  # Manejar interrupciones
