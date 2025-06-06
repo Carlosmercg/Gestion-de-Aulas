@@ -40,9 +40,21 @@ print("[Health] Servicio activo en tcp://*:6000")
 
 while True:
     what = rep.recv_string()          # «front» o «back»
-    primary_ok = vivo(PRIMARY_HB)
+
+    primary_ok   = vivo(PRIMARY_HB)
+    secondary_ok = vivo(SECONDARY_HB)
+
+    # Imprime el estado de los brokers
+    print(f"[Health] Broker primario ({PRIMARY_HB}) está {'ACTIVO' if primary_ok else 'INACTIVO'}")
+    print(f"[Health] Broker secundario ({SECONDARY_HB}) está {'ACTIVO' if secondary_ok else 'INACTIVO'}")
+
+    # Decide cuál broker está activo para responder
     if primary_ok:
         front, back = PRIMARY_FRT, PRIMARY_BCK
-    else:
+    elif secondary_ok:
         front, back = SECONDARY_FRT, SECONDARY_BCK
+    else:
+        # Ningún broker activo, responde vacío o error
+        front, back = "", ""
+
     rep.send_string(front if what == "front" else back)
