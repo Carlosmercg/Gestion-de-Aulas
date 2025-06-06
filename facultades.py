@@ -29,7 +29,7 @@ def enviar_a_dti(data):
         try:
             sock = ctx.socket(zmq.REQ)
             sock.connect(servidor)
-            sock.RCVTIMEO = 8000      
+            sock.RCVTIMEO = 20000      
             sock.SNDTIMEO = 3000      
 
             sock.send_json(data)
