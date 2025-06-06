@@ -1,32 +1,34 @@
 """
-DTI-worker con estado centralizado en SQLite.
-Cada worker se conecta al broker y comparte la disponibilidad
-de salones/laboratorios mediante la BD 'recursos.db'.
+DTI-worker concurrente con candado de archivo.
+Cada worker comparte la disponibilidad usando la BD 'recursos.db'
+y un FileLock (recursos.db.lock) para asegurar atomicidad.
 """
 
-import zmq, threading, time, os
-from db import inicializar_bd, obtener_disponibilidad, actualizar_disponibilidad
+import zmq, threading, time
+from db import (
+    inicializar_bd,
+    obtener_y_bloquear,      # NUEVO: devuelve lock, conn y dict disponibles
+    guardar_y_desbloquear    # NUEVO: actualiza BD y libera lock
+)
 
 BROKER_BACKEND_ADDR = "tcp://10.43.96.74:5560"
 
-SALONES_DISPONIBLES_ORIGINALES = 380
-LABORATORIOS_DISPONIBLES_ORIGINALES = 60
+SALONES_ORIG = 380
+LABS_ORIG    = 60
 
-resultados_asignacion = {}          # sólo para devolver al cliente
-lock = threading.Lock()             # protege operaciones por programa
+resultados_asignacion = {}          # solo para respuesta al cliente
 
 # ------------------------------------------------------------------
-# ------------------------------------------------------------------
-def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
-    with lock:
-        disponibles = obtener_disponibilidad(
-            semestre,
-            SALONES_DISPONIBLES_ORIGINALES,
-            LABORATORIOS_DISPONIBLES_ORIGINALES
-        )
+def asignar_recursos(programa, facu, semestre):
+    """Realiza la asignación para UN programa dentro de la sección crítica."""
+    # 1️⃣ Tomar candado + leer fila
+    lock, conn, disp = obtener_y_bloquear(
+        semestre, SALONES_ORIG, LABS_ORIG
+    )
 
-        resultado = {
-            "facultad": facultad,
+    try:
+        res = {
+            "facultad": facu,
             "programa": programa["nombre"],
             "salones_solicitados": programa["salones"],
             "laboratorios_solicitados": programa["laboratorios"],
@@ -34,89 +36,94 @@ def procesar_programa(programa: dict, facultad: str, semestre: str) -> None:
             "laboratorios_asignados": 0,
         }
 
-        salones_usados_como_labs = 0
+        salones_usados_labs = 0
 
-        # Asignar laboratorios o salones para laboratorios
-        if disponibles["laboratorios"] >= programa["laboratorios"]:
-            disponibles["laboratorios"] -= programa["laboratorios"]
-            resultado["laboratorios_asignados"] = programa["laboratorios"]
-            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
-                  f"{programa['laboratorios']} laboratorios.", flush=True)
-        elif disponibles["salones"] >= programa["laboratorios"]:
-            disponibles["salones"] -= programa["laboratorios"]
-            resultado["salones_asignados"] += programa["laboratorios"]
-            salones_usados_como_labs = programa["laboratorios"]
-            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
-                  f"{programa['laboratorios']} salones como laboratorios.", flush=True)
-        else:
-            print(f"[DTI-W] {programa['nombre']} ({facultad}) no recibió "
-                  "laboratorios ni salones como sustituto.", flush=True)
+        # --- asignación de labs ---
+        if disp["laboratorios"] >= programa["laboratorios"]:
+            disp["laboratorios"] -= programa["laboratorios"]
+            res["laboratorios_asignados"] = programa["laboratorios"]
+            print(f"[DTI-W] {res['programa']} ({facu}) → "
+                  f"{res['laboratorios_asignados']} labs.", flush=True)
 
-        # Asignar salones normales
-        if disponibles["salones"] >= programa["salones"]:
-            disponibles["salones"] -= programa["salones"]
-            resultado["salones_asignados"] += programa["salones"]
-            print(f"[DTI-W] {programa['nombre']} ({facultad}) recibió "
+        elif disp["salones"] >= programa["laboratorios"]:
+            disp["salones"] -= programa["laboratorios"]
+            res["salones_asignados"] += programa["laboratorios"]
+            salones_usados_labs = programa["laboratorios"]
+            print(f"[DTI-W] {res['programa']} ({facu}) → "
+                  f"{salones_usados_labs} salones como labs.", flush=True)
+
+        # --- asignación de salones ---
+        if disp["salones"] >= programa["salones"]:
+            disp["salones"] -= programa["salones"]
+            res["salones_asignados"] += programa["salones"]
+            print(f"[DTI-W] {res['programa']} ({facu}) → "
                   f"{programa['salones']} salones.", flush=True)
-        else:
-            print(f"[DTI-W] {programa['nombre']} ({facultad}) no recibió salones.", flush=True)
 
-        if salones_usados_como_labs:
-            resultado["salones_como_laboratorios"] = salones_usados_como_labs
+        if salones_usados_labs:
+            res["salones_como_laboratorios"] = salones_usados_labs
 
-        actualizar_disponibilidad(semestre, disponibles)
+        # 2️⃣ guardar nuevos saldos y soltar lock
+        guardar_y_desbloquear(lock, conn, semestre, disp)
 
-        clave = f"{facultad}_{semestre}"
-        resultados_asignacion.setdefault(clave, []).append(resultado)
+        # 3️⃣ almacenar para la respuesta
+        clave = f"{facu}_{semestre}"
+        resultados_asignacion.setdefault(clave, []).append(res)
 
-
+    except Exception as e:
+        # ante error, liberar lock para no quedar bloqueado
+        try:
+            guardar_y_desbloquear(lock, conn, semestre, disp)
+        except Exception:
+            pass
+        raise e
 
 # ------------------------------------------------------------------
-def manejar_dti_worker() -> None:
-    ctx = zmq.Context()
-    sock = ctx.socket(zmq.REP)
+def manejar_dti_worker():
+    ctx   = zmq.Context()
+    sock  = ctx.socket(zmq.REP)
     sock.connect(BROKER_BACKEND_ADDR)
-    print(f"[DTI-W] Conectado al broker en {BROKER_BACKEND_ADDR}")
+    print(f"[DTI-W] Conectado a broker {BROKER_BACKEND_ADDR}")
 
     while True:
         try:
-            msg = sock.recv_json()
-            facultad  = msg["facultad"]
+            msg       = sock.recv_json()
+            facu      = msg["facultad"]
             semestre  = msg["semestre"]
             programas = msg["programas"]
 
-            # Procesar secuencialmente para evitar conflictos en la BD
+            # Procesar secuencialmente (ya no creamos hilos por programa)
             for prog in programas:
-                procesar_programa(prog, facultad, semestre)
+                asignar_recursos(prog, facu, semestre)
 
-            # preparar respuesta
-            clave = f"{facultad}_{semestre}"
-            resp = resultados_asignacion.get(clave, [])
+            # Construir respuesta
+            clave = f"{facu}_{semestre}"
+            resp  = resultados_asignacion.get(clave, [])
 
-            disponibles = obtener_disponibilidad(
-                semestre,
-                SALONES_DISPONIBLES_ORIGINALES,
-                LABORATORIOS_DISPONIBLES_ORIGINALES
+            # Leer saldo final para el semestre
+            _, _, disp = obtener_y_bloquear(
+                semestre, SALONES_ORIG, LABS_ORIG
             )
+            # liberamos enseguida; no modificamos
+            from filelock import FileLock
+            FileLock("recursos.db.lock").release()
 
             sock.send_json({
                 "resultado": resp,
                 "estado": {
-                    "salones_disponibles": disponibles["salones"],
-                    "laboratorios_disponibles": disponibles["laboratorios"]
+                    "salones_disponibles": disp["salones"],
+                    "laboratorios_disponibles": disp["laboratorios"]
                 }
             })
 
         except Exception as e:
-            print(f"[DTI-W] Error: {e}")
+            print(f"[DTI-W] Error: {e}", flush=True)
             sock.send_json({"status": "error", "mensaje": str(e)})
 
-
 # ------------------------------------------------------------------
-def iniciar_dti_worker() -> None:
+def iniciar_dti_worker():
     inicializar_bd()
     threading.Thread(target=manejar_dti_worker, daemon=True).start()
-    print("[DTI-W] Worker iniciado y en espera…")
+    print("[DTI-W] Worker listo…")
     while True:
         time.sleep(10)
 

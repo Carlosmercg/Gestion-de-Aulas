@@ -1,47 +1,70 @@
-# db.py  – módulo de acceso centralizado a SQLite
 import sqlite3
-from threading import Lock
+from filelock import FileLock
 
-DB_FILE = "recursos.db"
-db_lock = Lock()          # evita carreras entre hilos del mismo worker
+DB_FILE  = "recursos.db"
+DB_LOCK  = "recursos.db.lock"
 
-def inicializar_bd() -> None:
-    """Crea la tabla si no existe."""
-    with db_lock, sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS recursos (
+# ------------------------------------------------------------------ #
+def _conn():
+    conn = sqlite3.connect(DB_FILE, timeout=30, isolation_level=None)  # autocommit
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+def inicializar_bd():
+    # Adquirir candado solo el tiempo mínimo
+    with FileLock(DB_LOCK):
+        with _conn() as conn:
+            conn.execute("""
+              CREATE TABLE IF NOT EXISTS recursos (
                 semestre TEXT PRIMARY KEY,
-                salones_disponibles INTEGER,
+                salones_disponibles     INTEGER,
                 laboratorios_disponibles INTEGER
-            )
-        """)
-        conn.commit()
+              )
+            """)
 
-def obtener_disponibilidad(semestre: str,
-                           salones_orig: int,
-                           labs_orig: int) -> dict:
-    """Devuelve {'salones': int, 'laboratorios': int} para el semestre."""
-    with db_lock, sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("SELECT salones_disponibles, laboratorios_disponibles "
-                  "FROM recursos WHERE semestre = ?", (semestre,))
-        row = c.fetchone()
-        if row:
-            return {"salones": row[0], "laboratorios": row[1]}
-        # semestre nuevo → insertar valores originales
-        c.execute("INSERT INTO recursos VALUES (?, ?, ?)",
-                  (semestre, salones_orig, labs_orig))
-        conn.commit()
-        return {"salones": salones_orig, "laboratorios": labs_orig}
+# ------------------------------------------------------------------ #
+def obtener_y_bloquear(semestre: str, sal_orig: int, lab_orig: int):
+    """
+    Devuelve (lock, conn, dict_disponibles) con el candado YA tomado.
+    El llamador debe liberar con guardar_y_desbloquear() o lock.release().
+    """
+    lock = FileLock(DB_LOCK)
+    lock.acquire()                  # bloqueo inter-proceso (bloqueante)
 
-def actualizar_disponibilidad(semestre: str, nuevos: dict) -> None:
-    """Guarda los nuevos contadores en la base."""
-    with db_lock, sqlite3.connect(DB_FILE) as conn:
-        c = conn.cursor()
-        c.execute("""
-            UPDATE recursos
-               SET salones_disponibles = ?, laboratorios_disponibles = ?
-             WHERE semestre = ?
-        """, (nuevos["salones"], nuevos["laboratorios"], semestre))
-        conn.commit()
+    conn = _conn()                  # ya en modo autocommit
+    cur  = conn.execute(
+        "SELECT salones_disponibles, laboratorios_disponibles "
+        "FROM recursos WHERE semestre=?",
+        (semestre,)
+    )
+    row = cur.fetchone()
+
+    if row is None:
+        # Semestre nuevo: insertar y tomar valores originales
+        conn.execute(
+            "INSERT INTO recursos VALUES (?, ?, ?)",
+            (semestre, sal_orig, lab_orig)
+        )
+        sal, lab = sal_orig, lab_orig
+    else:
+        sal, lab = row
+
+    return lock, conn, {"salones": sal, "laboratorios": lab}
+
+def guardar_y_desbloquear(lock, conn, semestre: str, nuevos: dict):
+    """
+    Actualiza los contadores y libera el candado.
+    ¡Llamar siempre dentro de un bloque try/finally en el caller!
+    """
+    try:
+        conn.execute(
+            "UPDATE recursos "
+            "SET salones_disponibles=?, laboratorios_disponibles=? "
+            "WHERE semestre=?",
+            (nuevos["salones"], nuevos["laboratorios"], semestre)
+        )
+        conn.commit()               # explícito: asegura flush en WAL
+    finally:
+        conn.close()
+        if lock:                    # evita dejar el candado tomado
+            lock.release()
