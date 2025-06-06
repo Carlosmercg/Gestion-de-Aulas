@@ -86,7 +86,14 @@ def manejar_dti_worker():
 
     while True:
         try:
-            msg       = sock.recv_json()
+            msg = sock.recv_json()
+
+            # Detectar ping health check
+            if msg.get("tipo") == "ping":
+                # Respuesta rápida sin prints ni lógica de asignación
+                sock.send_json({"status": "ok"})
+                continue
+
             facu      = msg["facultad"]
             semestre  = msg["semestre"]
             programas = msg["programas"]
@@ -118,6 +125,7 @@ def manejar_dti_worker():
         except Exception as e:
             print(f"[DTI-W] Error: {e}", flush=True)
             sock.send_json({"status": "error", "mensaje": str(e)})
+
 
 # ------------------------------------------------------------------
 def iniciar_dti_worker():
